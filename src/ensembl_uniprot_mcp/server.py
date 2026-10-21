@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import logging
+
+import httpx
+
+logger = logging.getLogger(__name__)
 import argparse
 from typing import Any, Literal
 
@@ -144,8 +149,13 @@ async def ensembl_lookup_gene_symbol(
             if ensembl_id:
                 try:
                     detail = await client.lookup_id(ensembl_id)
-                except Exception:
-                    detail = {}
+                except (httpx.HTTPError, TimeoutError) as exc:
+                    logger.warning(
+                        "Ensembl lookup failed for %s: %s",
+                        ensembl_id,
+                        exc,
+                    )
+                detail = {}
             rec = GeneLookupRecord(
                 query=symbol,
                 species=species,
@@ -155,7 +165,8 @@ async def ensembl_lookup_gene_symbol(
                 description=detail.get("description"),
                 location=(
                     f"{detail.get('seq_region_name')}:{detail.get('start')}-{detail.get('end')}:{detail.get('strand')}"
-                    if detail.get("seq_region_name") else None
+                    if detail.get("seq_region_name")
+                    else None
                 ),
                 metadata={"assembly": assembly, "xref": h, "lookup": detail},
             )
@@ -187,7 +198,9 @@ async def uniprot_sequence_by_accession(accession: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def uniprot_entry_by_accession(accession: str, include_sequence: bool = True) -> dict[str, Any]:
+async def uniprot_entry_by_accession(
+    accession: str, include_sequence: bool = True
+) -> dict[str, Any]:
     """Retrieve UniProtKB entry metadata and optionally the amino-acid sequence."""
     client = UniProtClient()
     try:
@@ -257,6 +270,23 @@ def main() -> None:
     parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
     args = parser.parse_args()
     mcp.run(transport=args.transport)
+
+
+# BioMCP v0.2: consolidated public gene research tool.
+from .research import ResearchRequest, ResearchService
+
+
+@mcp.tool()
+async def research_gene(
+    query: str, max_papers: int = 5, include_sequence: bool = True
+) -> dict[str, Any]:
+    """Normalize a human gene/protein identifier and retrieve public Ensembl, HPA, UniProt and PubMed evidence. Read-only; no PHI."""
+    req = ResearchRequest(query=query, max_papers=max_papers, include_sequence=include_sequence)
+    svc = ResearchService()
+    try:
+        return await svc.research(req)
+    finally:
+        await svc.close()
 
 
 if __name__ == "__main__":
