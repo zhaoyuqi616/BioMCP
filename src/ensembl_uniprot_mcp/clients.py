@@ -36,10 +36,14 @@ class AsyncRestClient:
         stop=stop_after_attempt(3),
         reraise=True,
     )
-    async def get(self, path: str, *, params: dict[str, Any] | None = None, accept: str = "application/json") -> httpx.Response:
+    async def get(
+        self, path: str, *, params: dict[str, Any] | None = None, accept: str = "application/json"
+    ) -> httpx.Response:
         response = await self._client.get(path, params=params, headers={"Accept": accept})
         if response.status_code in {429, 500, 502, 503, 504}:
-            raise BioApiError(f"Transient upstream error {response.status_code}: {response.text[:300]}")
+            raise BioApiError(
+                f"Transient upstream error {response.status_code}: {response.text[:300]}"
+            )
         if response.status_code >= 400:
             raise BioApiError(f"Upstream error {response.status_code}: {response.text[:500]}")
         return response
@@ -98,7 +102,9 @@ class UniProtClient:
         resp = await self.rest.get(f"/uniprotkb/{accession}.fasta", accept="text/x-fasta")
         return resp.text
 
-    async def search(self, query: str, size: int = 10, reviewed: bool | None = None) -> dict[str, Any]:
+    async def search(
+        self, query: str, size: int = 10, reviewed: bool | None = None
+    ) -> dict[str, Any]:
         q = query
         if reviewed is True:
             q = f"({query}) AND reviewed:true"
