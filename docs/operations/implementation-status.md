@@ -1,6 +1,6 @@
 # v0.4 implementation and verification status
 
-November 1, 2026. This is a tested local MVP increment. The full hosted MVP in `BIOMCP_MVP_ARCHITECTURE.md` is **not complete**; the open items below are deployment blockers.
+November 1, 2026. This is a tested local MVP increment. The full hosted MVP in `docs/architecture/mvp-design.md` is **not complete**; the open items below are deployment blockers.
 
 ## Implemented
 

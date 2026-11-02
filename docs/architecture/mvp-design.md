@@ -2,7 +2,7 @@
 
 Date: November 1, 2026 · Status: proposed implementation baseline
 
-This design translates the accepted [production review](BIOMCP_PRODUCTION_REVIEW.md) into a buildable MVP. It defines the architecture; it does not claim that the components below are implemented. Defaults are initial engineering choices to validate in staging.
+This design translates the accepted [production review](../operations/production-readiness.md) into a buildable MVP. It defines the architecture; it does not claim that the components below are implemented. Defaults are initial engineering choices to validate in staging.
 
 ## 1. Product boundary and success criteria
 

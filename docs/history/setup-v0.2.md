@@ -7,7 +7,7 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-python generate_password_hash.py
+python scripts/generate_password_hash.py
 export BIOMCP_USER=yuqizhao
 export BIOMCP_PASSWORD_HASH='<paste bcrypt hash from previous command>'
 python app.py

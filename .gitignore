@@ -1,10 +1,8 @@
-
-# Local configuration and credentials
+# Secrets and local configuration
 .env
 .env.*
 !.env.example
-
-# Python environment
+# Python and development outputs
 .venv/
 __pycache__/
 *.py[cod]
@@ -12,11 +10,12 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 *.egg-info/
-dist/
 build/
-
-# macOS
+dist/
+# Editor files and validation outputs
 .DS_Store
-
-# Logs
+*.swp
+*.swo
+*.backup
 *.log
+validation-report*.json
