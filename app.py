@@ -18,7 +18,8 @@ from ensembl_uniprot_mcp.dashboard import (
     save_fasta,
     source_data,
 )
-from ensembl_uniprot_mcp.research import ResearchRequest, ResearchService
+from ensembl_uniprot_mcp.research import ResearchRequest
+from ensembl_uniprot_mcp.runtime import get_service
 
 logger = logging.getLogger(__name__)
 
@@ -52,57 +53,16 @@ def empty_result(message):
     )
 
 
-from html import escape
-
-
 def status_html(result: dict) -> str:
-    """Render source availability and API status information."""
+    from ensembl_uniprot_mcp.dashboard import status_html as render_status
 
-    sources = result.get("sources") or {}
-
-    if not sources:
-        return "<p>No source information available.</p>"
-
-    rows = []
-
-    for source_name, source_info in sources.items():
-        source_info = source_info or {}
-
-        if not isinstance(source_info, dict):
-            source_info = {"status": "unknown"}
-
-        status = str(source_info.get("status", "unknown"))
-
-        colors = {
-            "ok": "#15803d",
-            "partial": "#b45309",
-            "error": "#b91c1c",
-            "unavailable": "#6b7280",
-        }
-
-        color = colors.get(status.lower(), "#6b7280")
-
-        rows.append(
-            "<tr>"
-            f"<td>{escape(str(source_name))}</td>"
-            f'<td style="color:{color};font-weight:600">'
-            f"{escape(status)}</td>"
-            "</tr>"
-        )
-
-    return (
-        "<h3>Data Source Status</h3>"
-        '<table style="width:100%;border-collapse:collapse">'
-        "<thead><tr><th>Source</th><th>Status</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody>"
-        "</table>"
-    )
+    return render_status(result)
 
 
 async def run_search(query, max_papers, include_protein, include_genomic):
     if not query or not query.strip():
         return empty_result("Enter a gene symbol or identifier to begin.")
-    svc = ResearchService()
+    svc = get_service()
     try:
         result = await svc.research(
             ResearchRequest(
@@ -150,8 +110,6 @@ async def run_search(query, max_papers, include_protein, include_genomic):
     except Exception:
         logger.exception("Unexpected BioMCP search failure")
         return empty_result("Search failed. Check the server logs and retry.")
-    finally:
-        await svc.close()
 
 
 def main():

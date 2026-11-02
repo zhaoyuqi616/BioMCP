@@ -5,6 +5,19 @@ import logging
 import httpx
 
 logger = logging.getLogger(__name__)
+from contextlib import asynccontextmanager
+
+from .runtime import close_runtime, get_service
+
+
+@asynccontextmanager
+async def lifespan(server):
+    try:
+        yield {}
+    finally:
+        await close_runtime()
+
+
 import argparse
 from typing import Any, Literal
 
@@ -18,6 +31,7 @@ load_dotenv()
 
 mcp = FastMCP(
     "Ensembl-UniProt MCP",
+    lifespan=lifespan,
     instructions=(
         "Expose Ensembl genomic/transcript/protein sequence lookups and UniProt protein "
         "entry/sequence search to LLM agents. Return compact JSON with source, IDs, sequence, "
@@ -32,9 +46,12 @@ def _ensembl_client(assembly: str) -> EnsemblClient:
 
 def _parse_fasta_sequence(fasta: str) -> tuple[str, str]:
     lines = [line.strip() for line in fasta.splitlines() if line.strip()]
-    header = lines[0] if lines and lines[0].startswith(">") else ""
-    seq = "".join(line for line in lines[1:] if not line.startswith(">"))
-    return header, seq
+    if not lines or not lines[0].startswith(">") or any(x.startswith(">") for x in lines[1:]):
+        raise ValueError("Expected exactly one FASTA record")
+    seq = "".join(lines[1:])
+    if not seq or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ*" for c in seq.upper()):
+        raise ValueError("Invalid FASTA sequence")
+    return lines[0], seq
 
 
 def _uniprot_gene_names(entry: dict[str, Any]) -> list[str]:
@@ -273,7 +290,7 @@ def main() -> None:
 
 
 # BioMCP v0.2: consolidated public gene research tool.
-from .research import ResearchRequest, ResearchService
+from .research import ResearchRequest
 
 
 @mcp.tool()
@@ -282,11 +299,38 @@ async def research_gene(
 ) -> dict[str, Any]:
     """Normalize a human gene/protein identifier and retrieve public Ensembl, HPA, UniProt and PubMed evidence. Read-only; no PHI."""
     req = ResearchRequest(query=query, max_papers=max_papers, include_sequence=include_sequence)
-    svc = ResearchService()
-    try:
-        return await svc.research(req)
-    finally:
-        await svc.close()
+    return await get_service().research(req)
+
+
+@mcp.tool()
+async def resolve_gene(query: str) -> dict[str, Any]:
+    """Resolve an exact human identifier; reject ambiguous mappings."""
+    import asyncio
+
+    return await asyncio.wait_for(get_service().normalize(query), 8)
+
+
+@mcp.tool()
+async def research_gene_v2(query: str, max_papers: int = 5) -> dict[str, Any]:
+    """Bounded public human-gene evidence with explicit per-source failures."""
+    import uuid
+
+    result = await get_service().research(
+        ResearchRequest(query=query, max_papers=max_papers, include_sequence=False)
+    )
+    sources = dict(result["sources"])
+    for name, message in result["provider_errors"].items():
+        sources[name] = {"status": "unavailable", "error": {"code": message}}
+    return {
+        "schema_version": "biomcp.research.v1",
+        "request_id": str(uuid.uuid4()),
+        "status": {"success": "complete", "error": "failed"}.get(
+            result["status"], result["status"]
+        ),
+        "identity": result["normalized_gene"],
+        "sources": sources,
+        "cache_hit": result["cache_hit"],
+    }
 
 
 if __name__ == "__main__":

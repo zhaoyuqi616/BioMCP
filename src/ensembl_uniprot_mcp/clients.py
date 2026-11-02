@@ -5,17 +5,16 @@ import os
 from typing import Any
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from .governance import UpstreamError
+
+BioApiError = UpstreamError
 
 ENSEMBL_REST = os.getenv("ENSEMBL_REST_BASE", "https://rest.ensembl.org")
 ENSEMBL_GRCH37_REST = os.getenv("ENSEMBL_GRCH37_REST_BASE", "https://grch37.rest.ensembl.org")
 UNIPROT_REST = os.getenv("UNIPROT_REST_BASE", "https://rest.uniprot.org")
 
 DEFAULT_TIMEOUT = float(os.getenv("BIO_MCP_TIMEOUT", "20"))
-
-
-class BioApiError(RuntimeError):
-    """Raised when an upstream biology API request fails."""
 
 
 class AsyncRestClient:
@@ -30,23 +29,12 @@ class AsyncRestClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, BioApiError)),
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=6),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
-    async def get(
-        self, path: str, *, params: dict[str, Any] | None = None, accept: str = "application/json"
-    ) -> httpx.Response:
-        response = await self._client.get(path, params=params, headers={"Accept": accept})
-        if response.status_code in {429, 500, 502, 503, 504}:
-            raise BioApiError(
-                f"Transient upstream error {response.status_code}: {response.text[:300]}"
-            )
-        if response.status_code >= 400:
-            raise BioApiError(f"Upstream error {response.status_code}: {response.text[:500]}")
-        return response
+    async def get(self, path, *, params=None, accept="application/json"):
+        from .runtime import get_executor
+
+        return await get_executor().get(
+            self._client, self.base_url + path, params=params, accept=accept
+        )
 
 
 class EnsemblClient:

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import logging
+
+from .governance import DEADLINE, Executor, UpstreamError
 
 logger = logging.getLogger(__name__)
 import asyncio
@@ -31,12 +35,16 @@ class ResearchRequest(BaseModel):
     include_genomic_sequence: bool = False
 
 
-class ProviderError(Exception):
-    pass
+ProviderError = UpstreamError
 
 
 class ResearchService:
-    def __init__(self, transport=None, timeout=7.0, cache_ttl=300):
+    def __init__(
+        self, transport=None, timeout=7.0, cache_ttl=300, executor=None, deadline_seconds=30
+    ):
+        self.executor = executor or Executor()
+        self.deadline_seconds = deadline_seconds
+        self._admission = asyncio.Semaphore(10)
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout),
             transport=transport,
@@ -52,50 +60,11 @@ class ResearchService:
         await self.client.aclose()
 
     async def get(self, provider, path, params=None):
-        url = BASES[provider] + path
-        for attempt in range(3):
-            try:
-                if provider == "pubmed":
-                    async with self._lock:
-                        wait = max(0.0, self._last_request + 0.36 - time.monotonic())
-                        if wait:
-                            await asyncio.sleep(wait)
-                        self._last_request = time.monotonic()
-                r = await self.client.get(
-                    url, params=params, headers={"Accept": "application/json"}
-                )
-                if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                    delay = (
-                        min(float(r.headers.get("Retry-After", "0") or 0), 3)
-                        if r.headers.get("Retry-After", "").isdigit()
-                        else 0
-                    )
-                    await asyncio.sleep(max(delay, 0.25 * 2**attempt))
-                    continue
-                r.raise_for_status()
-                return r.json()
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                if attempt == 2:
-                    raise ProviderError(f"{provider}: network or timeout failure") from exc
-                await asyncio.sleep(0.25 * 2**attempt)
-            except httpx.HTTPStatusError as exc:
-                logger.error(
-                    "%s HTTP error: status=%s url=%s response=%s",
-                    provider,
-                    exc.response.status_code,
-                    exc.request.url,
-                    exc.response.text[:300],
-                )
-                raise ProviderError(f"{provider}: HTTP {exc.response.status_code}") from exc
-
-            except ValueError as exc:
-                logger.error(
-                    "%s JSON parsing error: %s",
-                    provider,
-                    exc,
-                )
-                raise ProviderError(f"{provider}: invalid JSON response") from exc
-        raise ProviderError(f"{provider}: retries exhausted")
+        response = await self.executor.get(self.client, BASES[provider] + path, params=params)
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise ProviderError("schema_error") from exc
 
     async def normalize(self, query: str):
         if not GENE_PATTERN.fullmatch(query.strip()):
@@ -145,10 +114,23 @@ class ResearchService:
         if not hits:
             raise ValueError("No matching human gene found; verify the identifier or species.")
         best = hits[0]
-        if rank(best)[0] == 2 and not term.upper().startswith(("ENSG", "P", "Q", "O")):
-            raise ValueError(
-                "No exact symbol/alias match. Please enter an approved human gene symbol or alias."
-            )
+        if rank(best)[0] == 2:
+
+            def exact_identifier(hit):
+                ens = hit.get("ensembl", {})
+                ens = ens if isinstance(ens, list) else [ens]
+                uni = hit.get("uniprot", {})
+                ids = [e.get("gene") for e in ens if isinstance(e, dict)]
+                for value in uni.values():
+                    ids.extend(value if isinstance(value, list) else [value])
+                return term in ids
+
+            matches = [h for h in hits if exact_identifier(h)]
+            if len(matches) != 1:
+                raise ValueError(
+                    "No unique exact identifier match; provide an approved gene symbol."
+                )
+            best = matches[0]
         if (
             len(hits) > 1
             and rank(best)[0] == rank(hits[1])[0]
@@ -158,12 +140,16 @@ class ResearchService:
             raise ValueError("Ambiguous alias; provide an official HGNC gene symbol.")
         ens = best.get("ensembl", {})
         if isinstance(ens, list):
+            if len(ens) > 1:
+                raise ValueError("Multiple Ensembl mappings; explicit selection required.")
             ens = ens[0] if ens else {}
         uni = best.get("uniprot", {})
         if not isinstance(uni, dict):
             uni = {}
         acc = uni.get("Swiss-Prot")
         if isinstance(acc, list):
+            if len(acc) > 1:
+                raise ValueError("Multiple protein mappings; explicit accession required.")
             acc = acc[0] if acc else None
         return {
             "input": term,
@@ -201,14 +187,9 @@ class ResearchService:
             raise ProviderError("No Ensembl gene ID for genomic sequence")
         url = BASES["ensembl"] + "/sequence/id/" + n["ensembl_id"]
         try:
-            r = await self.client.get(
-                url,
-                params={"type": "genomic"},
-                headers={"Accept": "text/x-fasta"},
-                follow_redirects=False,
-                timeout=httpx.Timeout(30.0),
+            r = await self.executor.get(
+                self.client, url, params={"type": "genomic"}, accept="text/x-fasta"
             )
-            r.raise_for_status()
             if not r.text.startswith(">"):
                 raise ProviderError("Ensembl returned a non-FASTA response")
             lines = r.text.splitlines()
@@ -264,6 +245,8 @@ class ResearchService:
             "rna_single_cell_type_specificity",
         ]
         fields = {k: d[k] for k in keys if k in d}
+        if not fields:
+            raise ProviderError("schema_error")
         return {
             "fields": fields,
             "available_fields": list(d.keys())[:80],
@@ -323,11 +306,24 @@ class ResearchService:
         }
 
     async def research(self, request: ResearchRequest):
+        token = DEADLINE.set(time.monotonic() + self.deadline_seconds)
+        acquired = False
+        try:
+            await asyncio.wait_for(self._admission.acquire(), min(2, self.deadline_seconds))
+            acquired = True
+            remaining = DEADLINE.get() - time.monotonic()
+            return await asyncio.wait_for(self._research(request), max(0, remaining))
+        finally:
+            if acquired:
+                self._admission.release()
+            DEADLINE.reset(token)
+
+    async def _research(self, request: ResearchRequest):
         key = request.model_dump_json()
         cached = self.cache.get(key)
         if cached and time.monotonic() - cached[0] < self.ttl:
-            return {**cached[1], "cache_hit": True}
-        n = await self.normalize(request.query)
+            return {**copy.deepcopy(cached[1]), "cache_hit": True}
+        n = await asyncio.wait_for(self.normalize(request.query), min(8, self.deadline_seconds))
         jobs = {
             "ensembl": self._ensembl(n),
             "hpa": self._hpa(n),
@@ -336,7 +332,23 @@ class ResearchService:
         }
         if request.include_genomic_sequence:
             jobs["genomic_sequence"] = self._genomic_sequence(n)
-        values = await asyncio.gather(*jobs.values(), return_exceptions=True)
+        tasks = {name: asyncio.create_task(job) for name, job in jobs.items()}
+        try:
+            await asyncio.wait(
+                tasks.values(), timeout=max(0, DEADLINE.get() - time.monotonic() - 0.02)
+            )
+            values = []
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+                    values.append(ProviderError("deadline_exceeded"))
+                else:
+                    values.append(task.exception() or task.result())
+        finally:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
         sources = {}
         errors = {}
         for name, value in zip(jobs, values):
@@ -360,6 +372,11 @@ class ResearchService:
             "cache_hit": False,
             "notice": "Research use only; public data. PubMed relevance is not a clinical evidence grade.",
         }
-        if sources:
-            self.cache[key] = (time.monotonic(), result)
+        for expired in list(self.cache):
+            if time.monotonic() - self.cache[expired][0] >= self.ttl:
+                del self.cache[expired]
+        if len(self.cache) >= 100:
+            self.cache.pop(next(iter(self.cache)))
+        if sources and not errors and len(json.dumps(result)) < 1024 * 1024:
+            self.cache[key] = (time.monotonic(), copy.deepcopy(result))
         return result

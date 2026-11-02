@@ -1,263 +1,69 @@
-# BioMCP v0.3.0 — Biomedical Research Dashboard & MCP Server
+# BioMCP
 
-**BioMCP** is an open-source biomedical research application that combines an authenticated, local **Gradio research dashboard** with a **Model Context Protocol (MCP) server** for AI agents. It brings together gene identifiers, genomic annotations, protein records, expression evidence, scientific literature, and downloadable sequences from public biological databases.
+**Public gene and protein research tools for AI agents, with a local research dashboard.**
 
-**Repository:** https://github.com/zhaoyuqi616/BioMCP  
-**Release:** `v0.3.0`  
-**License:** MIT  
-**Intended use:** Public-data biological research; **not** clinical diagnosis or decision support.
+BioMCP connects Model Context Protocol (MCP) clients to Ensembl, UniProt, MyGene.info, Human Protein Atlas (HPA), and PubMed. Use it to resolve human gene identifiers, retrieve biological annotations and sequences, and inspect source-specific results.
+
+**Version 0.4.0 is a local MVP increment.** It adds request governance and stronger validation. Authenticated hosted deployment, private databases, and durable batch workflows remain planned work. Use public, non-confidential research inputs only.
 
 ## Contents
 
-- [Why BioMCP?](#why-biomcp)
-- [What's new in v0.3.0](#whats-new-in-v030)
-- [Architecture and data sources](#architecture-and-data-sources)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Dashboard authentication and startup](#dashboard-authentication-and-startup)
-- [Using the research dashboard](#using-the-research-dashboard)
-- [MCP tools and clients](#mcp-tools-and-clients)
-- [Configuration](#configuration)
-- [Testing and validation](#testing-and-validation)
-- [Troubleshooting](#troubleshooting)
-- [Security, provenance, and limitations](#security-provenance-and-limitations)
-- [Project structure](#project-structure)
-- [Development and releases](#development-and-releases)
-- [Roadmap](#roadmap)
-- [License](#license)
+- [What's new](#whats-new-in-v040)
+- [Quick start](#quick-start)
+- [Connect an MCP client](#connect-an-mcp-client)
+- [Available tools](#available-tools)
+- [Research dashboard](#research-dashboard)
+- [Reliability and configuration](#reliability-and-configuration)
+- [Testing](#testing)
+- [Limitations and roadmap](#limitations-and-roadmap)
+- [Design documents](#design-documents)
 
-## Why BioMCP?
+## What's new in v0.4.0
 
-Biological research often requires moving among several databases and writing separate API clients. BioMCP offers two ways to access public biological information:
+- **Shared request controls:** legacy lookup tools and research providers use the same HTTP executor.
+- **Safer retries:** permanent HTTP failures receive no retries; transient reads receive at most three attempts total.
+- **Provider cooldowns:** integer, decimal, and HTTP-date `Retry-After` values are honored without shortening the requested wait.
+- **Bounded research calls:** admission limits, request deadlines, response-size limits, and cancellation protect local resources.
+- **Partial results:** completed provider results remain available when another provider exceeds the research deadline.
+- **Stronger validation:** unmatched identifier prefixes no longer bypass exact matching; ambiguous mappings and malformed FASTA are rejected.
+- **Reusable research service:** research calls share a bounded, expiring cache within the process.
+- **New MCP tools:** `resolve_gene` and `research_gene_v2`, alongside existing tools.
+- **Expanded self-tests:** component tests, provider integration tests, and real MCP subprocess tests.
 
-1. **Research dashboard:** A browser-based interface for investigating a human gene or protein, reviewing available evidence, and exporting FASTA sequences.
-2. **MCP server:** A standardized tool interface that lets MCP-compatible AI clients retrieve Ensembl and UniProt records and sequences without embedding custom database logic in each agent.
+## Quick start
 
-BioMCP emphasizes **source attribution, structured results, reproducibility, and graceful handling of partial upstream failures**.
-
-## What's new in v0.3.0
-
-Compared with the original Ensembl–UniProt MCP server, v0.3 adds:
-
-- **Authenticated Gradio dashboard**, bound to localhost by default.
-- **Identifier normalization** using MyGene.info for human gene symbols, aliases, Ensembl gene IDs, and supported UniProt accessions.
-- **Multi-source research** across Ensembl, UniProt, Human Protein Atlas (HPA), and PubMed.
-- **Eight dashboard sections:** Overview, Genomics, Protein, Sequences, Expression, Literature, Source health, and Raw JSON.
-- **Optional genomic DNA and protein FASTA downloads.**
-- **Per-provider status and errors**, allowing usable partial results when an upstream service fails.
-- **Bcrypt-based login authentication** and a safer failure path for malformed password hashes.
-- **MCP SDK 1.x compatibility constraint** (`mcp>=1.7.0,<2.0`).
-
-The original MCP tool interface remains part of the project.
-
-## Architecture and data sources
-
-```text
-                  Researcher / AI Agent
-                           |
-             +-------------+-------------+
-             |                           |
-      Gradio dashboard               MCP client
-        (app.py)                  (Claude, Cursor,
-             |                    other MCP clients)
-             |                           |
-      ResearchService                MCP server
-             |                           |
-       MyGene.info                Ensembl / UniProt
-       (normalization)             sequence tools
-             |
-      +------+------+------+------+
-      |      |      |      |      |
-   Ensembl UniProt  HPA  PubMed  Optional
-                                 genomic DNA
-             |
-     Structured response
-   + provider status/errors
-             |
-   HTML tabs / JSON / FASTA
-```
-
-| Provider | Role in the research dashboard | Website |
-|---|---|---|
-| MyGene.info | Normalize gene/protein identifiers and resolve cross-references | https://mygene.info |
-| Ensembl | Genomic coordinates, biotype, annotations, optional gene-locus DNA | https://www.ensembl.org |
-| UniProt | Protein name, accession, review status, length, optional amino acid sequence | https://www.uniprot.org |
-| Human Protein Atlas | Public gene-level expression and localization metadata, subject to upstream schema and parser support | https://www.proteinatlas.org |
-| NCBI PubMed | Relevant publication metadata, including titles, authors, journals, dates, and PMIDs | https://pubmed.ncbi.nlm.nih.gov |
-
-**Scope:** The dashboard's normalization and research workflow is designed for **human genes/proteins**. The underlying Ensembl and UniProt MCP sequence tools have their own input capabilities.
-
-## Requirements
-
-- Python **3.10 or later** (the uploaded project was developed with Python 3.13).
-- Internet access for public database APIs.
-- macOS, Linux, or Windows with a compatible Python environment.
-- A local browser for the dashboard.
-- Git for cloning and contributing.
-
-Core dependencies declared in `pyproject.toml` include `mcp`, `httpx`, `pydantic`, `tenacity`, `python-dotenv`, `gradio`, and `bcrypt`. Development dependencies include `pytest`, `pytest-asyncio`, `respx`, `ruff`, and `mypy`.
-
-## Installation
-
-### 1. Clone the repository
+Requires **Python 3.10 or newer**. Network access is needed for real provider lookups; the automated tests use mocked provider responses.
 
 ```bash
 git clone https://github.com/zhaoyuqi616/BioMCP.git
 cd BioMCP
-```
-
-To install a specific release after it is published:
-
-```bash
-git fetch --tags
-git checkout v0.3.0
-```
-
-### 2. Create a virtual environment
-
-**macOS / Linux:**
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -e '.[dev]'
 ```
 
-**Windows PowerShell:**
-
-```powershell
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-### 3. Install BioMCP
-
-```bash
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-python -m pip check
-```
-
-For runtime dependencies only, use `python -m pip install -e .`.
-
-> **Note:** If your checked-out GitHub branch has not yet been updated with the v0.3 files, follow the release branch or tag containing `app.py`, `research.py`, and `dashboard.py`. The README alone does not install those features.
-
-## Dashboard authentication and startup
-
-The dashboard requires **both** `BIOMCP_USER` and `BIOMCP_PASSWORD_HASH`. It does **not** accept a plaintext password environment variable.
-
-### 1. Generate a bcrypt password hash
-
-```bash
-python generate_password_hash.py
-```
-
-Enter a strong password when prompted (the helper requires at least 12 characters). It prints a bcrypt hash. **Keep both your password and the generated hash private.**
-
-Alternatively:
-
-```bash
-python -c 'import bcrypt,getpass; p=getpass.getpass("Password: "); print(bcrypt.hashpw(p.encode(),bcrypt.gensalt()).decode())'
-```
-
-### 2. Set authentication variables
-
-**macOS / Linux:**
-
-```bash
-export BIOMCP_USER='your_username'
-export BIOMCP_PASSWORD_HASH='$2b$12$REPLACE_WITH_YOUR_GENERATED_HASH'
-```
-
-Use **single quotes** around the bcrypt hash so that shell expansion does not alter the `$` characters. Replace the example with the actual generated hash. Never paste a real hash into a GitHub issue, README, or committed script.
-
-**Windows PowerShell:**
-
-```powershell
-$env:BIOMCP_USER = 'your_username'
-$env:BIOMCP_PASSWORD_HASH = '$2b$12$REPLACE_WITH_YOUR_GENERATED_HASH'
-```
-
-### 3. Start the dashboard
-
-```bash
-python app.py
-```
-
-Open **http://127.0.0.1:7860** and log in with your username and the original password (not the hash).
-
-The checked-in `app.py` launches Gradio with `server_name="127.0.0.1"`, `server_port=7860`, `share=False`, and `auth=authenticate`. It is intended for **local use**; do not expose this development interface directly to the public internet.
-
-### 4. Stop the dashboard
-
-Press **Ctrl+C** in the terminal running `python app.py`.
-
-## Using the research dashboard
-
-### Example: investigate BRCA1
-
-1. Sign in to the local dashboard.
-2. Enter `BRCA1` (or another supported human gene identifier).
-3. Choose how many PubMed records to request (1–10; default **5**).
-4. Leave **Fetch protein FASTA** checked if you want the UniProt sequence.
-5. Enable **Fetch genomic DNA** if you want the entire gene-locus sequence; it may be large.
-6. Click **Search** or press Enter.
-7. Review the tabs, provider statuses, and optional FASTA downloads.
-
-### Dashboard sections
-
-| Section | Information shown |
-|---|---|
-| **Overview** | Normalized gene name, identifiers, biotype, biological description, and source links |
-| **Genomics** | Ensembl gene ID, assembly, chromosome, coordinates, strand, and biotype |
-| **Protein** | UniProt protein name, accession, organism, length, review status, and link |
-| **Sequences** | Genomic DNA FASTA and canonical UniProt protein FASTA previews/downloads, when requested and available |
-| **Expression** | Selected HPA metadata when recognized by the parser; missing fields may appear as unavailable |
-| **Literature** | PubMed publication cards with source links and bibliographic metadata |
-| **Source health** | Availability/status of upstream sources |
-| **Raw JSON** | Structured results and provider errors for inspection and debugging |
-
-### Sequence interpretation
-
-- **Genomic DNA FASTA** represents the **Ensembl gene locus**, including introns and other noncoding sequence within that locus. It is **not** spliced cDNA or CDS.
-- **Protein FASTA** comes from the selected UniProt protein record, when a sequence is available.
-- **Transcript-specific cDNA/CDS selection is not implemented in the v0.3 dashboard**. Use the underlying MCP Ensembl sequence tools for supported transcript-ID lookups.
-- Protein isoforms and genomic assemblies matter; verify identifiers and source records before downstream analysis.
-
-### HPA expression note
-
-The HPA endpoint uses fields such as `RNA tissue specificity`, `RNA tissue specific nTPM`, and `RNA single cell type specificity`. In the uploaded v0.3 archive, `_hpa()` selects **lowercase, underscore-separated** field names instead. Consequently, an HPA request can succeed while the Expression tab shows **no selected expression fields**. Correct the mapping in `src/ensembl_uniprot_mcp/research.py` before treating expression display as fully validated. The endpoint currently used is `/{ensembl_id}.json` under `https://www.proteinatlas.org`.
-
-## MCP tools and clients
-
-BioMCP retains the original Ensembl–UniProt MCP interface for compatible agent applications.
-
-| MCP tool | Purpose |
-|---|---|
-| `ensembl_lookup_gene_symbol` | Resolve a symbol such as `BRCA2` or `TP53` to an Ensembl stable identifier |
-| `ensembl_sequence_by_id` | Retrieve a supported genomic, cDNA, CDS, or protein sequence by Ensembl stable ID |
-| `ensembl_sequence_by_region` | Retrieve genomic DNA for a specified Ensembl region |
-| `uniprot_sequence_by_accession` | Retrieve UniProt FASTA-derived protein sequence by accession |
-| `uniprot_entry_by_accession` | Retrieve UniProtKB entry metadata and optional sequence |
-| `uniprot_search_proteins` | Search UniProtKB using a structured query |
-
-**Start the MCP server (stdio):**
+Run the MCP server locally:
 
 ```bash
 ensembl-uniprot-mcp --transport stdio
 ```
 
-Or:
+Alternatively:
 
 ```bash
 python -m ensembl_uniprot_mcp.server --transport stdio
 ```
 
-**Example MCP client configuration** (replace the executable path with your own absolute path):
+The stdio server waits for an MCP client; it is not an interactive terminal interface. Stop a manually started instance with Ctrl+C before letting your client launch its own process.
+
+## Connect an MCP client
+
+For clients that support local stdio servers, adapt this configuration using the absolute path to your checkout:
 
 ```json
 {
   "mcpServers": {
-    "ensembl-uniprot": {
+    "biomcp": {
       "command": "/absolute/path/to/BioMCP/.venv/bin/ensembl-uniprot-mcp",
       "args": ["--transport", "stdio"]
     }
@@ -265,189 +71,137 @@ python -m ensembl_uniprot_mcp.server --transport stdio
 }
 ```
 
-This is a generic stdio MCP configuration; each client has its own configuration location and compatibility requirements. The dashboard and MCP server are **separate entry points**: `python app.py` runs the browser UI, while `ensembl-uniprot-mcp --transport stdio` serves MCP tools.
+Your MCP host launches the process and controls its local access. Dashboard login does not authenticate a separately launched MCP server. Remote client authentication is not implemented in this release; the legacy SSE option is not a supported authenticated hosting setup.
 
-### Example agent prompts
+Example agent requests:
 
-> Resolve human BRCA2 to an Ensembl gene ID and retrieve a genomic sequence with its source metadata.
+> Resolve the human TP53 gene and retrieve its Ensembl annotation, UniProt metadata, HPA fields, and five PubMed articles. Show which sources failed.
 
-> Search UniProtKB for reviewed human TP53 proteins and report accession, protein name, sequence length, and amino acid sequence.
+> Find reviewed human BRCA2 proteins in UniProt. Report their accessions before selecting a sequence.
 
-> Retrieve a transcript-specific Ensembl cDNA or CDS using an explicitly chosen transcript identifier.
+For transcript-specific cDNA/CDS, select an explicit Ensembl transcript ID before requesting its sequence.
 
-## Configuration
+## Available tools
 
-### Dashboard settings
+| Tool | Purpose |
+|---|---|
+| `resolve_gene` | Resolve a human symbol, alias, or exact identifier; reject unresolved or ambiguous mappings. |
+| `research_gene_v2` | Retrieve human gene evidence with a versioned result envelope and explicit source failures. |
+| `research_gene` | Existing aggregated research interface, with optional protein sequence. |
+| `ensembl_lookup_gene_symbol` | Find Ensembl records for a species and gene symbol. |
+| `ensembl_sequence_by_id` | Fetch genomic, cDNA, CDS, or protein sequence by an appropriate Ensembl ID. |
+| `ensembl_sequence_by_region` | Fetch genomic DNA for a specified species and region. |
+| `uniprot_sequence_by_accession` | Fetch a UniProt protein sequence from FASTA. |
+| `uniprot_entry_by_accession` | Fetch UniProt metadata and optionally its sequence. |
+| `uniprot_search_proteins` | Search UniProtKB, with reviewed-entry filtering and optional sequences. |
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `BIOMCP_USER` | Yes, for dashboard | Login username |
-| `BIOMCP_PASSWORD_HASH` | Yes, for dashboard | Bcrypt password hash; **not plaintext** |
+`research_gene_v2` accepts `query` and `max_papers` (1–10). It returns `schema_version`, `request_id`, `status`, `identity`, `sources`, and `cache_hit`. It omits protein sequence by default. Existing successful legacy tool response shapes are retained.
 
-### Existing MCP server settings
+The consolidated research tools target humans. Individual Ensembl tools retain species parameters. HPA fields depend on the live endpoint schema; unknown selected fields cause an explicit provider failure. A valid result from one provider does not guarantee availability or consistency of another.
 
-The original MCP server documentation lists the following environment variables. Check the corresponding server/client implementation for applicability to the exact version you deploy.
+## Research dashboard
 
-| Variable | Documented default | Purpose |
-|---|---|---|
-| `ENSEMBL_REST_BASE` | `https://rest.ensembl.org` | Ensembl REST API |
-| `ENSEMBL_GRCH37_REST_BASE` | `https://grch37.rest.ensembl.org` | Legacy GRCh37 API |
-| `UNIPROT_REST_BASE` | `https://rest.uniprot.org` | UniProt REST API |
-| `BIO_MCP_TIMEOUT` | `20` | Legacy MCP request timeout (seconds) |
+The localhost Gradio dashboard provides Overview, Genomics, Protein, Sequences, Expression, Literature, Source health, and Raw JSON views.
 
-The **dashboard ResearchService** in the uploaded v0.3 code uses its own fixed provider base URLs and defaults to a **7-second HTTP timeout**, a **300-second in-memory cache TTL**, and limited retries. The legacy MCP environment variables should not be assumed to configure the dashboard.
-
-### Keep secrets out of Git
-
-Recommended `.gitignore` entries:
-
-```gitignore
-.venv/
-.env
-.env.*
-!.env.example
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-*.egg-info/
-dist/
-build/
-.DS_Store
-*.log
-```
-
-Do not commit authentication credentials, hashes, local data, or user-specific files. Check staged changes before pushing.
-
-## Testing and validation
-
-Install development dependencies and run:
+Generate a bcrypt hash without printing your password:
 
 ```bash
-python -m pip install -e '.[dev]'
-python -m pip check
-python -m compileall -q app.py src tests
-python -m ruff check .
-python -m ruff format --check .
-python -m pytest -v
+python -c 'import bcrypt,getpass; p=getpass.getpass("Password: "); print(bcrypt.hashpw(p.encode(),bcrypt.gensalt()).decode())'
 ```
 
-The original README also documents a smoke test:
+Set the username and generated hash, then launch:
 
 ```bash
-python examples/smoke_test.py
+export BIOMCP_USER='your_username'
+export BIOMCP_PASSWORD_HASH='$2b$12$REPLACE_WITH_YOUR_GENERATED_HASH'
+python app.py
 ```
 
-Run that command **only if `examples/smoke_test.py` exists** in your checkout; it was not present in the supplied v0.3 ZIP.
+Open [http://127.0.0.1:7860](http://127.0.0.1:7860). Keep the hash in single quotes to preserve its `$` characters. Never commit credentials or `.env` files.
 
-### Suggested manual acceptance tests
+The dashboard binds to localhost. Its login and temporary sequence downloads are intended for local use. Hosted identity, export authorization, and export expiration still need implementation.
 
-- **Authentication:** correct credentials work; incorrect credentials are rejected.
-- **Identifier normalization:** try `BRCA1`, `TP53`, and a supported Ensembl ID.
-- **Provider responses:** inspect Ensembl, UniProt, HPA, and PubMed independently.
-- **Sequence export:** download a protein FASTA; optionally download genomic DNA.
-- **Partial failure:** verify unavailable providers do not hide successful results.
-- **Raw JSON:** check that provider errors and source metadata are present.
-- **HPA mapping:** verify actual tissue and single-cell fields appear after parser correction.
-- **MCP mode:** verify stdio startup and the six original tools with a compatible MCP client.
+## Reliability and configuration
 
-Tests are **not claimed to have passed merely because these commands are documented**; run them against the final release commit.
+| Control | Current behavior |
+|---|---|
+| Retry budget | At most 3 attempts per logical upstream GET, including the first attempt. |
+| Terminal failures | HTTP 400/401/403/404/422 and other non-retryable statuses stop immediately. |
+| Rate limiting | Shared cooldowns honor full `Retry-After`; work that cannot fit the deadline returns a rate-limit error. |
+| Research deadline | 30 seconds by default, with up to 8 seconds for normalization. |
+| Admission | Up to 10 active research operations per service; admission waits at most 2 seconds. |
+| Attempt limit | At most 10 seconds per attempt, bounded by the remaining deadline. |
+| Response size | Decoded upstream bodies are capped at 2 MiB by the shared executor, including FASTA. |
+| Cache | Process-local aggregate research cache; up to 100 entries, each below approximately 1 MiB. Partial failures are not cached. |
+| Failure pause | Repeated transient failures pause the affected upstream scope. |
 
-## Troubleshooting
+These limits bound behavior; they are not measured availability or latency guarantees. Separate local processes do not share in-memory quota state.
 
-| Symptom | Likely cause | Recommended action |
+| Environment variable | Default | Scope |
 |---|---|---|
-| `fatal: not a git repository` | Working directory came from an extracted ZIP without `.git` | Clone the repository, then copy in your tested source files; preserve the original as backup |
-| `Set BIOMCP_USER and BIOMCP_PASSWORD_HASH` | Missing login environment variables | Export both variables in the same terminal before `python app.py` |
-| `Incorrect Credentials` | Username mismatch, wrong password, or invalid bcrypt hash | Generate a new hash; verify single quotes around it in shell exports |
-| `Invalid salt` | Malformed bcrypt hash | Regenerate the hash with `generate_password_hash.py` |
-| `ModuleNotFoundError: mcp.server.fastmcp` | Incompatible MCP SDK | Install project dependencies, keeping `mcp>=1.7.0,<2.0` for this version |
-| `HPA: unavailable` | Upstream HTTP, redirect, timeout, or parsing issue | Inspect terminal logs and verify `https://www.proteinatlas.org/ENSG00000012048.json` independently |
-| HPA is `OK` but expression fields are empty | HPA field-name mapping mismatch | Update `_hpa()` to recognize HPA's actual capitalized, space-containing JSON keys |
-| FASTA download missing | Sequence not requested, no sequence returned, or provider error | Check selection checkbox, source health, and Raw JSON |
-| Port `7860` already in use | Another process is listening on the port | Stop the previous dashboard process or adjust the local port in `app.py` |
+| `BIOMCP_USER` | Unset | Required dashboard username. |
+| `BIOMCP_PASSWORD_HASH` | Unset | Required dashboard bcrypt hash. |
+| `BIOMCP_PROFILE` | `local` | Other profiles reject governed calls until hosted security is implemented. |
+| `BIOMCP_REDIS_URL` | Unset | Optional shared quota/cooldown coordinator. |
+| `ENSEMBL_REST_BASE` | `https://rest.ensembl.org` | Individual Ensembl lookup tools. |
+| `ENSEMBL_GRCH37_REST_BASE` | `https://grch37.rest.ensembl.org` | Individual legacy-assembly Ensembl tools. |
+| `UNIPROT_REST_BASE` | `https://rest.uniprot.org` | Individual UniProt tools. |
+| `BIO_MCP_TIMEOUT` | `20` | Individual HTTP client timeout; executor attempt limits also apply. |
 
-## Security, provenance, and limitations
+Research provider URLs are defined separately in `research.py`; the legacy base-URL variables do not redirect consolidated research calls.
 
-- **Public biological data only.** Do not enter patient names, PHI, confidential records, or sensitive clinical data.
-- **Research-only outputs.** BioMCP is not validated for diagnosis, treatment recommendations, or clinical decision-making.
-- **Local authentication is not production identity management.** The dashboard is intentionally bound to `127.0.0.1` and does not create a public Gradio share URL.
-- **External API dependence.** Source availability, completeness, schemas, and rate limits can change. A successful normalization does not guarantee every provider returns a result.
-- **Partial success is expected.** Check `provider_errors`, per-source statuses, source URLs, and timestamps rather than assuming all fields are present.
-- **PubMed relevance is not evidence grading.** The app retrieves bibliographic records; it does not independently assess study quality.
-- **Expression data are descriptive.** HPA tissue/single-cell fields require appropriate biological interpretation and careful attention to missingness and measurement units.
-- **FASTA semantics matter.** Gene-locus DNA, transcript cDNA, CDS, and protein sequences are different biological entities.
-
-## Project structure
-
-Representative structure of the uploaded v0.3 archive (excluding generated caches):
-
-```text
-BioMCP/
-├── app.py                         # Authenticated Gradio dashboard
-├── generate_password_hash.py      # Interactive bcrypt hash generator
-├── pyproject.toml                 # Package metadata and dependencies
-├── README.md                      # Main project documentation
-├── README_DASHBOARD_V03.md        # v0.3 dashboard-specific notes
-├── README_V2.md                   # Earlier version notes
-├── ADR_V2.md                      # Earlier architecture notes
-├── src/
-│   └── ensembl_uniprot_mcp/
-│       ├── server.py              # MCP server entry point and tools
-│       ├── research.py            # Multi-provider research service
-│       ├── dashboard.py           # Dashboard HTML and FASTA helpers
-│       └── ...
-└── tests/
-    ├── test_dashboard.py
-    ├── test_research.py
-    ├── test_fasta_parser.py
-    └── test_models.py
-```
-
-## Development and releases
-
-Recommended release process:
-
-1. Keep a backup of the locally tested version.
-2. Work in a Git clone of `https://github.com/zhaoyuqi616/BioMCP.git`.
-3. Create a branch such as `release/v0.3.0`.
-4. Update code, dependencies, README, and tests.
-5. Review staged files for secrets and generated artifacts.
-6. Run lint, format checks, tests, and dashboard/MCP smoke tests.
-7. Push the branch, open a pull request, and merge after review.
-8. Tag the merged commit `v0.3.0` and publish GitHub release notes.
-
-Example commands **after** validation and merge:
+### Optional Redis coordination
 
 ```bash
-git switch main
-git pull --ff-only origin main
-git tag -a v0.3.0 -m "BioMCP v0.3.0"
-git push origin v0.3.0
+python -m pip install -e '.[coordination]'
+export BIOMCP_REDIS_URL='redis://127.0.0.1:6379/0'
 ```
 
-## Docker
+All participating processes must use the same coordinator. The Redis adapter is implemented but has not been integration-tested against a running Redis service in this release. Persistence/recovery and distributed probe behavior remain release gates. Treat this as an experimental option.
 
-The original BioMCP README included Docker build/run commands, but the supplied v0.3 ZIP **does not contain a Dockerfile**. Docker deployment is therefore not documented as a tested v0.3 installation method. A future release can add a validated Dockerfile and separate deployment guidance for the MCP server and local dashboard.
+## Testing
 
-## Roadmap
+From the repository root, with the development dependencies installed:
 
-Potential future enhancements (not current v0.3 features):
+```bash
+python -m pytest -q
+python -m ruff check src tests app.py
+python -m ruff format --check src tests app.py
+python -m compileall -q src app.py tests
+```
 
-- Complete HPA schema mapping and add tissue/single-cell expression visualizations.
-- Add explicit transcript and isoform selection for cDNA/CDS downloads.
-- Add sequence windowing, reverse complement, and batch retrieval.
-- Add Ensembl VEP and variant-consequence annotation.
-- Add structured protein domains, localization, and pathway views.
-- Add persistent caching and configurable provider settings.
-- Add stronger test coverage, CI workflows, and Docker packaging.
-- Expand agent workflows and structured, citation-aware biomedical summaries.
+The local release checks pass **25 tests**:
+
+| Layer | Coverage |
+|---|---|
+| Component | Retry counts, cooldown parsing, response limits, identifier validation, FASTA parsing and rendering helpers. |
+| Integration | Mocked provider aggregation, cache reuse, partial failures and deadline behavior. |
+| End-to-end | Actual MCP stdio subprocess: initialization, discovery, validation errors, research aggregation and cache reuse. Upstream responses are mocked. |
+
+These tests do not validate live provider schemas, hosted authentication, Redis, or production load.
+
+## Limitations and roadmap
+
+This release supports public research workflows. Do not enter patient records, private assay data, credentials, or confidential target lists. PubMed relevance is not an evidence-quality grade. Genomic DNA represents the gene locus, including introns; a UniProt entry sequence does not establish the canonical protein for the gene.
+
+The next implementation stages are:
+
+1. Organization OAuth/OIDC, authenticated Streamable HTTP, and hosted dashboard sessions.
+2. Authorized, expiring sequence exports and a versioned sequence tool.
+3. Redis integration/recovery tests, per-user admission, and richer provider error/provenance schemas.
+4. Provider-level caching, explicit candidate selection, and live schema verification.
+5. Reproducible deployment packaging, telemetry, load testing, and operational exercises.
+
+Private-database federation and durable batch checkpoints follow those foundations. The architecture documents describe proposed work as well as current behavior; consult the implementation status for the distinction.
+
+## Design documents
+
+- [Implementation status and remaining work](MVP_IMPLEMENTATION_STATUS.md)
+- [MVP technical architecture](BIOMCP_MVP_ARCHITECTURE.md)
+- [Production review and readiness checklist](BIOMCP_PRODUCTION_REVIEW.md)
+- [Historical v0.3 dashboard notes](README_DASHBOARD_V03.md)
+- [Historical v0.2 setup](README_V2.md) and [architecture decision](ADR_V2.md)
 
 ## License
 
-BioMCP is distributed under the **MIT License**, as described in the original repository README. See the repository's license file for the authoritative license text.
-
----
-
-**BioMCP v0.3.0** — Connecting public biomedical knowledge to researchers and AI agents.
+Licensed under [MIT](LICENSE). Upstream biological resources have their own usage, licensing, and citation requirements.
