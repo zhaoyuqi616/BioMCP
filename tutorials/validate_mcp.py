@@ -10,6 +10,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 EXPECTED = {
+    "gene_evidence",
+    "trial_detail",
     "gene_report",
     "resolve_gene",
     "research_gene",

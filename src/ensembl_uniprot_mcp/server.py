@@ -341,5 +341,25 @@ async def gene_report(query: str, include_disease: bool = False) -> dict[str, An
     return await get_reports().report(query, include_disease)
 
 
+@mcp.tool()
+async def gene_evidence(query: str, sections: list[str] | None = None) -> dict[str, Any]:
+    """Source-attributed records and coverage for a single human gene."""
+    from .evidence import SECTIONS, validate_sections
+    from .runtime import get_reports
+
+    selected = validate_sections(SECTIONS if sections is None else sections)
+    service = get_reports()
+    result = await service.research.research(ResearchRequest(query=query, include_sequence=False))
+    return await service.evidence.snapshot(result, selected)
+
+
+@mcp.tool()
+async def trial_detail(nct_id: str) -> dict[str, Any]:
+    """Fetch one ClinicalTrials.gov study by exact NCT identifier."""
+    from .runtime import get_reports
+
+    return await get_reports().evidence.trial(nct_id)
+
+
 if __name__ == "__main__":
     main()

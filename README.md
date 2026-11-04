@@ -4,7 +4,7 @@
 
 BioMCP exposes Ensembl and UniProt lookups through the Model Context Protocol (MCP), and combines MyGene.info, Ensembl, UniProt, Human Protein Atlas (HPA), and PubMed into human-gene research results.
 
-**Current release: v0.6.0 — local MVP.** It includes bounded requests, safer retries, partial results and automated testing. Hosted authentication, private databases, authorized exports and durable batch execution remain open work. Use public, non-confidential research inputs only.
+**Current release: v0.7.0 — local MVP.** It includes bounded requests, safer retries, partial results and automated testing. Hosted authentication, private databases, authorized exports and durable batch execution remain open work. Use public, non-confidential research inputs only.
 
 ## Quick start
 
@@ -40,19 +40,20 @@ Then ask: “Call `research_gene_v2` for TP53 with three PubMed articles. Show t
 
 Dashboard login does not protect a separate MCP process. The legacy SSE option is not an authenticated hosted deployment.
 
-## New in v0.6
+## Explore single-gene evidence
 
-- Single-gene Overview summarizes identity, expression, protein, genomics and evidence coverage.
-- Diseases table includes direct association scores and evidence categories.
-- Drug Targets presents modality-specific tractability, candidates and bounded FDA ingredient-approval checks.
-- Multi-gene comparison has been removed.
+Search **SPP1**, then open **Evidence explorer** to inspect tissue RNA, disease evidence categories and drug candidates. The figures, accessible records table and MCP evidence tool use the same report. Open **Sources** for coverage and **Retrieve study** for linked clinical trials.
 
-See the [v0.6 guide](docs/guides/v0.6.md) for evidence interpretation and validation.
+ClinGen supplies curated validity classifications and inheritance when available. ClinicalTrials.gov supplies details on demand for an exact NCT identifier. The existing Ensembl, UniProt, HPA, MyGene.info, PubMed, Open Targets, openFDA and optional OMIM integrations remain available.
+
+Read the [v0.7 explorer guide](docs/guides/v0.7.md) and [server architecture](docs/architecture/overview.md).
 
 ## Available tools
 
 | Tool | Purpose |
 |---|---|
+| `gene_evidence` | Retrieve the v0.7 evidence snapshot and source coverage. |
+| `trial_detail` | Retrieve a ClinicalTrials.gov record by NCT identifier. |
 | `gene_report` | Source-attributed expression report and optional disease evidence. |
 | `resolve_gene` | Resolve an exact human identifier; reject unresolved or ambiguous mappings. |
 | `research_gene_v2` | Aggregate human gene evidence in a versioned envelope with source errors. |
@@ -85,7 +86,7 @@ python scripts/check.py
 python tutorials/validate_mcp.py --output /tmp/biomcp-offline.json
 ```
 
-The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **33 tests**, including actual MCP subprocess tests with mocked providers.
+The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **36 tests**, including actual MCP subprocess tests with mocked providers.
 
 For a small live-provider check:
 

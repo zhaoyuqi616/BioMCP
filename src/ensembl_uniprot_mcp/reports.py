@@ -43,7 +43,10 @@ def expression_summary(result):
 
 class ReportService:
     def __init__(self, research):
+        from .evidence import EvidenceService
+
         self.research = research
+        self.evidence = EvidenceService(self)
 
     async def diseases(self, identity):
         async def opentargets():

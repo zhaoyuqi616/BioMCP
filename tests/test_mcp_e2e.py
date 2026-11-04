@@ -57,3 +57,9 @@ main()
         assert len(result.structuredContent["sources"]) == 4
         cached = await session.call_tool("research_gene_v2", {"query": "TP53"})
         assert cached.structuredContent["cache_hit"]
+        evidence = await session.call_tool(
+            "gene_evidence", {"query": "TP53", "sections": ["expression"]}
+        )
+        assert not evidence.isError
+        assert evidence.structuredContent["schema_version"] == "biomcp.evidence.v1"
+        assert any(s["source"] == "HPA" for s in evidence.structuredContent["sources"])
