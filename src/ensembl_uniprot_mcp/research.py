@@ -34,6 +34,7 @@ class ResearchRequest(BaseModel):
     max_papers: int = Field(default=5, ge=1, le=10)
     include_sequence: bool = True
     include_genomic_sequence: bool = False
+    expression_only: bool = False
 
 
 ProviderError = UpstreamError
@@ -256,6 +257,10 @@ class ResearchService:
             "rna_tissue_distribution",
             "rna_tissue_specific_nTPM",
             "protein_class",
+            "protein_tissue_specificity",
+            "protein_tissue_distribution",
+            "reliability_(ih)",
+            "secretome_location",
             "subcellular_location",
             "subcellular_main_location",
             "tissue_expression",
@@ -348,6 +353,9 @@ class ResearchService:
             "uniprot": self._uniprot(n, request.include_sequence),
             "pubmed": self._pubmed(n, request.max_papers),
         }
+        if request.expression_only:
+            for name in ("ensembl", "uniprot", "pubmed"):
+                jobs.pop(name).close()
         if request.include_genomic_sequence:
             jobs["genomic_sequence"] = self._genomic_sequence(n)
         tasks = {name: asyncio.create_task(job) for name, job in jobs.items()}

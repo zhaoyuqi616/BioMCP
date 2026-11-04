@@ -333,5 +333,23 @@ async def research_gene_v2(query: str, max_papers: int = 5) -> dict[str, Any]:
     }
 
 
+@mcp.tool()
+async def gene_report(query: str, include_disease: bool = False) -> dict[str, Any]:
+    """Readable source-attributed gene expression and optional disease evidence."""
+    from .runtime import get_reports
+
+    return await get_reports().report(query, include_disease)
+
+
+@mcp.tool()
+async def compare_genes(queries: str, include_disease: bool = False) -> dict[str, Any]:
+    """Compare up to 20 comma/newline-separated public identifiers. Sequences excluded."""
+    from .runtime import get_reports
+
+    async for result in get_reports().batch(queries, include_disease):
+        pass
+    return result
+
+
 if __name__ == "__main__":
     main()

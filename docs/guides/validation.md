@@ -1,6 +1,6 @@
-# BioMCP v0.4: end-to-end validation tutorial
+# BioMCP v0.5.3: end-to-end validation tutorial
 
-This tutorial validates the **local v0.4 MVP** from installation through a real MCP session and dashboard use. Allow approximately 20–30 minutes. A passing local suite establishes local behavior; it does not establish hosted authentication, Redis reliability, or production readiness.
+This tutorial validates the **local v0.5.3 MVP** from installation through a real MCP session and dashboard use. Allow approximately 20–30 minutes. A passing local suite establishes local behavior; it does not establish hosted authentication, Redis reliability, or production readiness.
 
 ## 1. Prepare a clean environment
 
@@ -15,7 +15,7 @@ python -m pip install -e '.[dev]'
 python -c 'import sys; from importlib.metadata import version; print(sys.executable); print(version("ensembl-uniprot-mcp"))'
 ```
 
-Expected: the interpreter is inside this checkout's `.venv`, and the package version is `0.4.0`. If already cloned, use your existing checkout and activate its environment; preserve local changes before updating it. Windows PowerShell activation is `.venv\Scripts\Activate.ps1`.
+Expected: the interpreter is inside this checkout's `.venv`, and the package version is `0.5.3`. If already cloned, use your existing checkout and activate its environment; preserve local changes before updating it. Windows PowerShell activation is `.venv\Scripts\Activate.ps1`.
 
 For an isolated local test, clear experimental configuration in this terminal:
 
@@ -37,7 +37,7 @@ python -m ruff format --check src tests app.py
 python -m compileall -q src app.py tests
 ```
 
-Expected for the current baseline: **25 tests pass**, lint passes, formatting reports no changes needed, and compilation completes without errors. Test counts can increase in later commits.
+Expected for the current baseline: **33 tests pass**, lint passes, formatting reports no changes needed, and compilation completes without errors. Test counts can increase in later commits.
 
 For more diagnostic output, run the layers separately:
 
@@ -75,7 +75,7 @@ From the repository root:
 python tutorials/validate_mcp.py --output /tmp/biomcp-offline.json
 ```
 
-Expected: `tool_discovery: true`, `invalid_input_rejected: true`, `passed: true`, and nine discovered tools. Exit code is zero on success. Logs on stderr are normal; stdout contains the summary. The JSON report records the checks.
+Expected: `tool_discovery: true`, `invalid_input_rejected: true`, `passed: true`, and eleven discovered tools. Exit code is zero on success. Logs on stderr are normal; stdout contains the summary. The JSON report records the checks.
 
 This helper launches and closes its own server. You do not need to run `ensembl-uniprot-mcp` in another terminal. A manually started stdio process waits for protocol messages and may appear idle; that is normal.
 
@@ -89,7 +89,7 @@ python tutorials/validate_mcp.py --live --output /tmp/biomcp-live.json
 
 The helper performs these operations in one MCP session:
 
-1. Discover the nine tools and check rejection of invalid research input.
+1. Discover the eleven tools and check rejection of invalid research input.
 2. Resolve `TP53`.
 3. Retrieve UniProt entry `P04637`.
 4. Call `research_gene_v2` for `TP53` with three PubMed articles.
@@ -129,7 +129,7 @@ In a client supporting local MCP stdio servers, configure:
 }
 ```
 
-Use an actual absolute path, restart/reconnect the client, and inspect its tool list. Expected: nine tools, including `resolve_gene`, `research_gene` and `research_gene_v2`.
+Use an actual absolute path, restart/reconnect the client, and inspect its tool list. Expected: eleven tools, including `resolve_gene`, `research_gene` and `research_gene_v2`.
 
 Ask the agent:
 
@@ -198,9 +198,9 @@ Declare the **local MVP validated** when deterministic checks and MCP/dashboard 
 | Symptom | Next check |
 |---|---|
 | Module or command not found | Activate `.venv`; rerun `python -m pip install -e '.[dev]'` |
-| Version differs from 0.4.0 | Check checkout/branch and interpreter; do not trust an old global installation |
+| Version differs from 0.5.3 | Check checkout/branch and interpreter; do not trust an old global installation |
 | MCP server appears idle | Stdio expects a client; use the helper or configured host |
-| Only seven tools | Client likely launched an older install; inspect its absolute executable path and reconnect |
+| Only nine tools | Client likely launched an older install; inspect its absolute executable path and reconnect |
 | HPA unavailable / schema error | Record provider degradation; current selected fields may not match the live schema |
 | Gene cannot be resolved uniquely | Record exact input/error; try a known gene symbol, not an arbitrary first candidate |
 | DNS/TLS/timeout failures | Check network/proxy access; do not disable TLS verification |

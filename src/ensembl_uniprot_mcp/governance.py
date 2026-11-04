@@ -130,7 +130,9 @@ class Executor:
         self.coordinator = coordinator or Coordinator()
         self.max_bytes = max_bytes
 
-    async def get(self, client, url, *, params=None, accept="application/json"):
+    async def get(
+        self, client, url, *, params=None, accept="application/json", query_body=None, headers=None
+    ):
         scope = httpx.URL(url).host
         deadline = DEADLINE.get() or time.monotonic() + 30
         token = DEADLINE.set(deadline)
@@ -143,7 +145,11 @@ class Executor:
                 async def fetch():
                     await self.coordinator.acquire(scope)
                     async with client.stream(
-                        "GET", url, params=params, headers={"Accept": accept}
+                        "POST" if query_body is not None else "GET",
+                        url,
+                        params=params,
+                        json=query_body,
+                        headers={"Accept": accept, **(headers or {})},
                     ) as r:
                         data = bytearray()
                         async for chunk in r.aiter_bytes():
@@ -151,11 +157,14 @@ class Executor:
                             if len(data) > self.max_bytes:
                                 raise UpstreamError("response_too_large")
                         # aiter_bytes() already decoded the upstream representation.
-                        headers = r.headers.copy()
-                        headers.pop("content-encoding", None)
-                        headers.pop("content-length", None)
+                        response_headers = r.headers.copy()
+                        response_headers.pop("content-encoding", None)
+                        response_headers.pop("content-length", None)
                         return httpx.Response(
-                            r.status_code, headers=headers, content=bytes(data), request=r.request
+                            r.status_code,
+                            headers=response_headers,
+                            content=bytes(data),
+                            request=r.request,
                         )
 
                 try:

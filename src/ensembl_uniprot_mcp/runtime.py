@@ -30,9 +30,21 @@ def get_service():
 
 
 async def close_runtime():
-    global _service, _executor
+    global _service, _executor, _report_service
     if _service:
         await _service.close()
     if _executor and hasattr(_executor.coordinator, "close"):
         await _executor.coordinator.close()
-    _service = _executor = None
+    _service = _executor = _report_service = None
+
+
+_report_service = None
+
+
+def get_reports():
+    global _report_service
+    if _report_service is None:
+        from .reports import ReportService
+
+        _report_service = ReportService(get_service())
+    return _report_service

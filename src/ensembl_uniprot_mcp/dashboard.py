@@ -137,21 +137,22 @@ def protein_html(result):
 
 
 def expression_html(result):
-    d = source_data(result, "hpa")
-    if not d:
-        return (
-            "<p>HPA expression data are unavailable; check the provider status below.</p>"
-            + status_html(result)
-        )
-    fields = d.get("fields") or {}
+    from .reports import expression_summary
+
+    summary = expression_summary(result)
     return (
-        "<h3>Human Protein Atlas</h3>"
-        + (
-            rows({k.replace("_", " ").capitalize(): v for k, v in fields.items()})
-            if fields
-            else "<p>No selected expression fields were returned by the HPA endpoint.</p>"
+        "<h3>RNA and protein expression summary</h3>"
+        + rows(
+            {
+                m["label"]: m["value"] if m["status"] == "reported" else "Not reported"
+                for m in summary["measurements"]
+            }
         )
-        + f"<p>{link(d.get('url'), 'Open Human Protein Atlas')}</p>"
+        + "<p>"
+        + esc(summary["note"])
+        + "</p>"
+        + link(summary["source_url"], "Human Protein Atlas")
+        + status_html(result)
     )
 
 

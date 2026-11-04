@@ -1,3 +1,7 @@
+# v0.5 update
+
+The expression report, 20-entry comparison and optional disease adapters shipped in v0.5.3. See [release guide](../guides/v0.5.md) for current tests and validation boundaries. The v0.4 audit below remains historical context.
+
 # v0.4 implementation and verification status
 
 November 1, 2026. This is a tested local MVP increment. The full hosted MVP in `docs/architecture/mvp-design.md` is **not complete**; the open items below are deployment blockers.
