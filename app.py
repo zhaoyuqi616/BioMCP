@@ -8,6 +8,8 @@ import gradio as gr
 
 from ensembl_uniprot_mcp.dashboard import (
     CSS,
+    diseases_html,
+    drugs_html,
     esc,
     expression_html,
     fasta,
@@ -50,6 +52,8 @@ def empty_result(message):
         None,
         {},
         "",
+        "",
+        "",
     )
 
 
@@ -73,6 +77,13 @@ async def run_search(query, max_papers, include_protein, include_genomic):
             )
         )
         n = result.get("normalized_gene") or {}
+        import asyncio
+
+        from ensembl_uniprot_mcp.runtime import get_reports
+
+        diseases, drugs = await asyncio.gather(get_reports().diseases(n), get_reports().drugs(n))
+        result["diseases"] = diseases
+        result["drug_targets"] = drugs
         symbol = n.get("symbol") or "gene"
         genomic = source_data(result, "genomic_sequence")
         protein = source_data(result, "uniprot")
@@ -104,6 +115,8 @@ async def run_search(query, max_papers, include_protein, include_genomic):
             save_fasta(protein_header, aa, f"{symbol}_protein"),
             result,
             seq_message,
+            diseases_html(result),
+            drugs_html(result),
         )
     except ValueError as exc:
         return empty_result(str(exc))
@@ -112,40 +125,12 @@ async def run_search(query, max_papers, include_protein, include_genomic):
         return empty_result("Search failed. Check the server logs and retry.")
 
 
-async def run_comparison(queries, include_disease):
-    from ensembl_uniprot_mcp.runtime import get_reports
-
-    try:
-        async for report in get_reports().batch(queries, include_disease):
-            table = []
-            for row in report["rows"]:
-                result = row["result"]
-                expression = result.get("expression", {})
-                values = {m["label"]: m["value"] for m in expression.get("measurements", [])}
-                disease_data = result.get("diseases", {})
-                ot = disease_data.get("open_targets", {})
-                disease_names = ", ".join(r["disease"]["name"] for r in ot.get("associations", []))
-                table.append(
-                    [
-                        row["input"],
-                        result.get("identity", {}).get("symbol", ""),
-                        result["status"],
-                        str(values.get("RNA tissue specificity") or ""),
-                        str(values.get("Main subcellular location") or ""),
-                        disease_names or ot.get("status", "not_requested"),
-                    ]
-                )
-            yield table, report
-    except ValueError as exc:
-        yield [], {"error": str(exc)}
-
-
 def main():
     if not os.getenv("BIOMCP_USER") or not os.getenv("BIOMCP_PASSWORD_HASH"):
         raise RuntimeError("Set BIOMCP_USER and BIOMCP_PASSWORD_HASH before starting")
 
     with gr.Blocks(title="BioMCP Research Dashboard", css=CSS) as demo:
-        gr.Markdown("# BioMCP Research Dashboard · v0.5.3")
+        gr.Markdown("# BioMCP Research Dashboard · v0.6.0")
         gr.Markdown(
             "Public human gene/protein research only. **Do not enter patient information.**"
         )
@@ -161,6 +146,10 @@ def main():
         with gr.Tabs():
             with gr.Tab("Overview"):
                 overview = gr.HTML(label="Gene overview")
+            with gr.Tab("Diseases"):
+                disease_view = gr.HTML()
+            with gr.Tab("Drug Targets"):
+                drug_view = gr.HTML()
             with gr.Tab("Genomics"):
                 genomics = gr.HTML()
             with gr.Tab("Protein"):
@@ -183,31 +172,6 @@ def main():
                 health = gr.HTML()
             with gr.Tab("Raw JSON"):
                 raw_json = gr.JSON(label="Structured response and provider errors")
-        with gr.Tab("Gene comparison and disease evidence"):
-            batch_input = gr.Textbox(
-                label="Up to 20 genes, separated by commas or newlines",
-                value="SPP1, TP53, BRCA2",
-                lines=3,
-            )
-            disease = gr.Checkbox(
-                label="Include disease associations (additional provider calls)", value=False
-            )
-            compare_button = gr.Button("Compare genes")
-            comparison = gr.Dataframe(
-                headers=[
-                    "Input",
-                    "Gene",
-                    "Status",
-                    "RNA specificity",
-                    "Localization",
-                    "Disease associations (direct)",
-                ],
-                interactive=False,
-            )
-            comparison_json = gr.JSON(label="Per-gene reports and disease evidence")
-            compare_button.click(
-                run_comparison, inputs=[batch_input, disease], outputs=[comparison, comparison_json]
-            )
         outputs = [
             overview,
             genomics,
@@ -221,6 +185,8 @@ def main():
             protein_download,
             raw_json,
             sequence_notice,
+            disease_view,
+            drug_view,
         ]
         button.click(
             run_search,

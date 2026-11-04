@@ -27,4 +27,4 @@ def test_fasta_download():
 def test_app_error_output_arity():
     module = ast.parse(Path(__file__).resolve().parents[1].joinpath("app.py").read_text())
     fn = next(x for x in module.body if isinstance(x, ast.FunctionDef) and x.name == "empty_result")
-    assert len(fn.body[0].value.elts) == 12
+    assert len(fn.body[0].value.elts) == 14

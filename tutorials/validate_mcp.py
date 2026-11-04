@@ -11,7 +11,6 @@ from mcp.client.stdio import stdio_client
 
 EXPECTED = {
     "gene_report",
-    "compare_genes",
     "resolve_gene",
     "research_gene",
     "research_gene_v2",

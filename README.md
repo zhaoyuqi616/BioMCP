@@ -4,7 +4,7 @@
 
 BioMCP exposes Ensembl and UniProt lookups through the Model Context Protocol (MCP), and combines MyGene.info, Ensembl, UniProt, Human Protein Atlas (HPA), and PubMed into human-gene research results.
 
-**Current release: v0.5.3 — local MVP.** It includes bounded requests, safer retries, partial results and automated testing. Hosted authentication, private databases, authorized exports and durable batch execution remain open work. Use public, non-confidential research inputs only.
+**Current release: v0.6.0 — local MVP.** It includes bounded requests, safer retries, partial results and automated testing. Hosted authentication, private databases, authorized exports and durable batch execution remain open work. Use public, non-confidential research inputs only.
 
 ## Quick start
 
@@ -40,21 +40,20 @@ Then ask: “Call `research_gene_v2` for TP53 with three PubMed articles. Show t
 
 Dashboard login does not protect a separate MCP process. The legacy SSE option is not an authenticated hosted deployment.
 
-## New in v0.5
+## New in v0.6
 
-- Readable RNA/protein expression summaries with explicit missing values.
-- Up to 20 genes per comparison, streamed dashboard progress and duplicate resolution.
-- Optional direct Open Targets disease evidence and credential-gated OMIM gene maps.
-- New MCP tools `gene_report` and `compare_genes`, alongside existing tools.
+- Single-gene Overview summarizes identity, expression, protein, genomics and evidence coverage.
+- Diseases table includes direct association scores and evidence categories.
+- Drug Targets presents modality-specific tractability, candidates and bounded FDA ingredient-approval checks.
+- Multi-gene comparison has been removed.
 
-See the [v0.5 release guide](docs/guides/v0.5.md) for usage, access configuration and validation limits.
+See the [v0.6 guide](docs/guides/v0.6.md) for evidence interpretation and validation.
 
 ## Available tools
 
 | Tool | Purpose |
 |---|---|
 | `gene_report` | Source-attributed expression report and optional disease evidence. |
-| `compare_genes` | Compare up to 20 comma/newline-separated identifiers. |
 | `resolve_gene` | Resolve an exact human identifier; reject unresolved or ambiguous mappings. |
 | `research_gene_v2` | Aggregate human gene evidence in a versioned envelope with source errors. |
 | `research_gene` | Compatible aggregate interface with optional protein sequence. |

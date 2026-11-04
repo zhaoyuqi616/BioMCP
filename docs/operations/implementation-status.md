@@ -1,3 +1,7 @@
+# v0.6 update
+
+Multi-gene comparison is removed. Single-gene Overview, Diseases and Drug Targets are delivered. See [v0.6 guide](../guides/v0.6.md). The earlier audits below are historical context.
+
 # v0.5 update
 
 The expression report, 20-entry comparison and optional disease adapters shipped in v0.5.3. See [release guide](../guides/v0.5.md) for current tests and validation boundaries. The v0.4 audit below remains historical context.

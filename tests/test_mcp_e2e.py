@@ -16,6 +16,8 @@ async def test_stdio_handshake_and_validation():
         await session.initialize()
         tools = await session.list_tools()
         names = {tool.name for tool in tools.tools}
+        assert "compare_genes" not in names
+        assert "gene_report" in names
         assert {"research_gene", "research_gene_v2", "resolve_gene"} <= names
         result = await session.call_tool("research_gene", {"query": "T", "max_papers": 99})
         assert result.isError

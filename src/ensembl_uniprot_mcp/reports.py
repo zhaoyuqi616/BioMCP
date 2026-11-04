@@ -1,9 +1,7 @@
-"""Source-attributed expression reports and bounded interactive gene comparison."""
+"""Source-attributed single-gene expression, disease and drug evidence."""
 
 import asyncio
-import copy
 import os
-import re
 from datetime import datetime, timezone
 
 from .governance import UpstreamError
@@ -46,7 +44,6 @@ def expression_summary(result):
 class ReportService:
     def __init__(self, research):
         self.research = research
-        self.batch_slots = asyncio.Semaphore(2)
 
     async def diseases(self, identity):
         async def opentargets():
@@ -57,7 +54,7 @@ class ReportService:
               target(ensemblId: $id) {
                 id
                 associatedDiseases(page: {index: 0, size: 10}, enableIndirect: false) {
-                  count rows { score disease { id name } }
+                  count rows { score datatypeScores { id score } datasourceScores { id score } disease { id name } }
                 }
               }
             }"""
@@ -123,64 +120,124 @@ class ReportService:
             ResearchRequest(query=query, include_sequence=False, expression_only=expression_only)
         )
         diseases = await self.diseases(result["normalized_gene"]) if include_disease else {}
+        drugs = await self.drugs(result["normalized_gene"]) if include_disease else {}
         return {
             "schema_version": "biomcp.report.v1",
             "identity": result["normalized_gene"],
             "status": result["status"],
             "expression": expression_summary(result),
             "diseases": diseases,
+            "drug_targets": drugs,
             "evidence": result,
         }
 
-    async def batch(self, text, include_disease=False):
-        inputs = [part.strip() for part in re.split(r"[,\n]+", text) if part.strip()]
-        if not 1 <= len(inputs) <= 20:
-            raise ValueError("Enter between 1 and 20 identifiers.")
-        # One task per textual identifier, preserving repeated input rows.
-        tasks = {}
-        resolved_tasks = {}
-
-        async def run(query):
-            async with self.batch_slots:
-                try:
-                    identity = await asyncio.wait_for(self.research.normalize(query), 8)
-                    canonical = identity.get("ensembl_id") or identity["symbol"]
-                    if canonical not in resolved_tasks:
-                        resolved_tasks[canonical] = asyncio.create_task(
-                            self.report(identity["symbol"], include_disease, True)
-                        )
-                    return await asyncio.wait_for(asyncio.shield(resolved_tasks[canonical]), 55)
-                except (ValueError, UpstreamError, asyncio.TimeoutError):
-                    return {
-                        "status": "failed",
-                        "error": "Identifier unresolved or source unavailable",
-                    }
-
+    async def drugs(self, identity):
+        gene_id = identity.get("ensembl_id")
+        if not gene_id:
+            return {"status": "no_data", "drugs": [], "message": "No Ensembl target ID available."}
+        query = """query Drugs($id: String!) {
+          target(ensemblId: $id) {
+            id tractability { label modality value }
+            drugAndClinicalCandidates {
+              count rows { drug { id name maximumClinicalStage drugType }
+                clinicalReports { provider origin clinicalStage url }
+              }
+            }
+          }
+        }"""
         try:
-            for query in inputs:
-                tasks.setdefault(query.casefold(), None)
-                if tasks[query.casefold()] is None:
-                    tasks[query.casefold()] = asyncio.create_task(run(query))
-            pending = set(tasks.values())
-            while pending:
-                _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                rows = [
-                    {
-                        "input": q,
-                        "result": copy.deepcopy(tasks[q.casefold()].result())
-                        if tasks[q.casefold()].done()
-                        else {"status": "pending"},
-                    }
-                    for q in inputs
+            response = await self.research.executor.get(
+                self.research.client,
+                "https://api.platform.opentargets.org/api/v4/graphql",
+                query_body={"query": query, "variables": {"id": gene_id}},
+            )
+            body = response.json()
+            if body.get("errors"):
+                raise UpstreamError("graphql_error")
+            target = body["data"]["target"]
+            if target is None:
+                return {"status": "no_data", "drugs": [], "message": "No target evidence returned."}
+            if target["id"] != gene_id:
+                raise UpstreamError("identity_mismatch")
+            candidates = target["drugAndClinicalCandidates"]
+            drugs = []
+            ordered = sorted(
+                candidates["rows"],
+                key=lambda row: (
+                    "APPROV" not in (row.get("drug") or {}).get("maximumClinicalStage", "").upper()
+                ),
+            )
+            for row in ordered[:20]:
+                if row.get("drug"):
+                    drugs.append(
+                        {
+                            **row["drug"],
+                            "clinical_reports": row["clinicalReports"][:5],
+                            "fda": {"status": "not_checked"},
+                        }
+                    )
+            # Bounded regulatory checks. Unknown is never presented as not approved.
+            for drug in drugs[:5]:
+                try:
+                    drug["fda"] = await asyncio.wait_for(self.fda_approval(drug["name"]), 3)
+                except asyncio.TimeoutError:
+                    drug["fda"] = {"status": "unverified", "note": "FDA lookup timed out."}
+            return {
+                "status": "ok" if drugs else "no_data",
+                "drugs": drugs,
+                "total": candidates["count"],
+                "display_limit": 20,
+                "tractability": target["tractability"],
+                "source_url": f"https://platform.opentargets.org/target/{gene_id}",
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                "message": "Clinical-stage and tractability evidence do not establish FDA approval for a target or indication.",
+            }
+        except (UpstreamError, ValueError, KeyError, TypeError, asyncio.TimeoutError):
+            return {
+                "status": "unavailable",
+                "drugs": [],
+                "message": "Drug evidence could not be retrieved. Druggability and FDA status remain unknown.",
+            }
+
+    async def fda_approval(self, name):
+        import re
+
+        if not re.fullmatch(r"[A-Za-z0-9 .()/-]{2,100}", name):
+            return {"status": "unverified"}
+        try:
+            response = await self.research.executor.get(
+                self.research.client,
+                "https://api.fda.gov/drug/drugsfda.json",
+                params={
+                    "search": f'openfda.substance_name:"{name}" OR openfda.generic_name:"{name}"',
+                    "limit": 10,
+                },
+            )
+            for record in response.json().get("results", []):
+                ingredients = [
+                    i.get("name", "").casefold()
+                    for p in record.get("products", [])
+                    for i in p.get("active_ingredients", [])
                 ]
-                yield {
-                    "schema_version": "biomcp.batch.v1",
-                    "rows": rows,
-                    "completed": sum(r["result"]["status"] != "pending" for r in rows),
-                    "total": len(inputs),
-                }
-        finally:
-            for task in [*tasks.values(), *resolved_tasks.values()]:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks.values(), *resolved_tasks.values(), return_exceptions=True)
+                ingredients.extend(
+                    n.casefold() for n in record.get("openfda", {}).get("generic_name", [])
+                )
+                approvals = [
+                    s for s in record.get("submissions", []) if s.get("submission_status") == "AP"
+                ]
+                if name.casefold() in ingredients and approvals:
+                    return {
+                        "status": "approval_record_found",
+                        "application": record.get("application_number"),
+                        "approval_date": min(
+                            s.get("submission_status_date", "") for s in approvals
+                        ),
+                        "source_url": str(response.request.url),
+                        "note": "Ingredient approval record. Target-specific indication and current marketing status are not verified.",
+                    }
+            return {
+                "status": "unverified",
+                "note": "No exact ingredient approval record matched in the bounded search.",
+            }
+        except (UpstreamError, ValueError, KeyError, TypeError):
+            return {"status": "unverified", "note": "FDA records unavailable or no exact match."}

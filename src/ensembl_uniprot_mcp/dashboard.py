@@ -87,6 +87,53 @@ def overview_html(result):
                 "Gene biotype": ens.get("biotype"),
             }
         )
+        + "<h3>Expression at a glance · Human Protein Atlas</h3>"
+        + rows(
+            {
+                k.replace("_", " ").capitalize(): v
+                for k, v in (hpa.get("fields") or {}).items()
+                if k
+                in (
+                    "rna_tissue_specificity",
+                    "protein_tissue_specificity",
+                    "subcellular_main_location",
+                )
+            }
+        )
+        + "<h3>Protein · UniProt</h3>"
+        + rows(
+            {
+                "Protein": uni.get("protein_name"),
+                "Length (amino acids)": uni.get("length"),
+                "Reviewed": uni.get("reviewed"),
+            }
+        )
+        + "<h3>Disease and drug evidence</h3>"
+        + rows(
+            {
+                "Direct disease associations returned": len(
+                    result.get("diseases", {}).get("open_targets", {}).get("associations", [])
+                ),
+                "Drug / candidate records returned": len(
+                    result.get("drug_targets", {}).get("drugs", [])
+                ),
+                "Drug evidence status": result.get("drug_targets", {}).get("status", "unavailable"),
+                "Disease evidence status": result.get("diseases", {})
+                .get("open_targets", {})
+                .get("status", "unavailable"),
+            }
+        )
+        + "<p>See Diseases and Drug Targets for evidence, regulatory status and source limitations.</p>"
+        + "<h3>Genomic context · Ensembl</h3>"
+        + rows(
+            {
+                "Assembly": ens.get("assembly"),
+                "Dataset": ens.get("dataset"),
+                "Chromosome": ens.get("chromosome"),
+            }
+        )
+        + "<h3>Literature · PubMed</h3>"
+        + rows({"Articles returned": len(source_data(result, "pubmed").get("papers", []))})
         + "<h3>Biological annotation</h3>"
         + f"<p>{esc(ens.get('description') or 'No description returned by Ensembl.')}</p>"
         + f"<h3>Research links</h3><p>{refs}</p>"
@@ -207,4 +254,111 @@ CSS = """
 .biomcp-paper{border-bottom:1px solid var(--border-color-primary);padding:.8rem 0}
 .biomcp-paper p{margin:.25rem 0}.biomcp-muted{font-size:.85rem;color:var(--body-text-color-subdued)}
 .biomcp-alert{padding:1rem;border-radius:10px;background:#fff0e6;color:#8b421b}
+"""
+
+
+def evidence_table(headers, entries):
+    return (
+        '<table class="biomcp-table"><thead><tr>'
+        + "".join(f"<th>{esc(h)}</th>" for h in headers)
+        + "</tr></thead><tbody>"
+        + "".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in entries)
+        + "</tbody></table>"
+    )
+
+
+def diseases_html(result):
+    sources = result.get("diseases", {})
+    ot = sources.get("open_targets", {})
+    rows_data = []
+    for item in ot.get("associations", []):
+        disease = item["disease"]
+        evidence = ", ".join(s["id"] for s in item.get("datatypeScores", []) if s["score"] > 0)
+        rows_data.append(
+            [
+                link("https://platform.opentargets.org/disease/" + disease["id"], disease["name"]),
+                esc(round(item["score"], 3)),
+                esc(evidence or "Not reported"),
+                "Direct association",
+            ]
+        )
+    state = ot.get("status", "unavailable")
+    content = (
+        evidence_table(["Disease", "Evidence score", "Evidence types", "Relationship"], rows_data)
+        if rows_data
+        else f"<p>{esc('No disease associations returned.' if state == 'no_data' else 'Disease evidence is unavailable.')}</p>"
+    )
+    omim = sources.get("omim", {})
+    omim_content = rows({"OMIM gene maps": omim["gene_maps"]}) if omim.get("gene_maps") else ""
+    return (
+        "<h3>Disease associations</h3>"
+        + "<p>Open Targets evidence scores do not establish causality or individual disease risk.</p>"
+        + content
+        + f"<p>OMIM status: {esc(omim.get('status', 'not_configured'))}</p>"
+        + omim_content
+        + link(ot.get("source_url"), "Open Targets")
+        + f"<p>Retrieved: {esc(ot.get('retrieved_at'))}</p>"
+    )
+
+
+def drugs_html(result):
+    data = result.get("drug_targets", {})
+    assessments = [t for t in data.get("tractability", []) if t["value"]]
+    entries = []
+    for drug in data.get("drugs", []):
+        fda = drug.get("fda", {})
+        state = fda.get("status", "unverified")
+        entries.append(
+            [
+                link("https://platform.opentargets.org/drug/" + drug["id"], drug["name"]),
+                esc(drug.get("drugType")),
+                esc(drug.get("maximumClinicalStage")),
+                esc(
+                    "FDA ingredient approval record"
+                    if state == "approval_record_found"
+                    else "FDA approval unverified"
+                ),
+                link(fda.get("source_url"), fda.get("application", "FDA source")),
+            ]
+        )
+    return (
+        "<h3>Drug targets and druggability</h3>"
+        + "<p>Tractability assessments indicate evidence for targeting a protein by a modality. They do not guarantee a successful treatment.</p>"
+        + rows(
+            {
+                t["modality"] + " / " + t["label"]: "Supporting evidence reported"
+                for t in assessments
+            }
+        )
+        + ("<p>No positive tractability assessment returned.</p>" if not assessments else "")
+        + (
+            evidence_table(
+                [
+                    "Drug / candidate",
+                    "Modality",
+                    "Highest clinical stage",
+                    "FDA evidence",
+                    "Application",
+                ],
+                entries,
+            )
+            if entries
+            else f"<p>{esc(data.get('message', 'No solid drug-target evidence available from this lookup.'))}</p>"
+        )
+        + (
+            "<p>No FDA ingredient approval was verified in the checked records.</p>"
+            if not any(
+                d.get("fda", {}).get("status") == "approval_record_found"
+                for d in data.get("drugs", [])
+            )
+            else ""
+        )
+        + "<p>FDA checks cover at most five displayed ingredients. An approval record does not establish approval for this gene-associated disease. Unverified includes missing matches and unavailable data.</p>"
+        + link(data.get("source_url"), "Open Targets target evidence")
+    )
+
+
+CSS += """
+.biomcp-table{width:100%;border-collapse:collapse;margin:1rem 0}
+.biomcp-table th,.biomcp-table td{text-align:left;padding:.7rem;border-bottom:1px solid #ddd;vertical-align:top}
 """

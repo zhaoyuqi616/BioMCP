@@ -4,7 +4,7 @@ Start with the guide matching your task. Runtime behavior is documented separate
 
 | Task | Read |
 |---|---|
-| Use v0.5 reports, batches and disease evidence | [Release guide](guides/v0.5.md) |
+| Use the single-gene dashboard | [v0.6 guide](guides/v0.6.md) |
 | Install and run | [Project quick start](../README.md#quick-start) |
 | Test the MVP end to end | [Validation tutorial](guides/validation.md) |
 | Configure providers, limits and local login | [Configuration](guides/configuration.md) |
