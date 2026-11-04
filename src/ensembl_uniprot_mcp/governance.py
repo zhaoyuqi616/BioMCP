@@ -150,8 +150,12 @@ class Executor:
                             data.extend(chunk)
                             if len(data) > self.max_bytes:
                                 raise UpstreamError("response_too_large")
+                        # aiter_bytes() already decoded the upstream representation.
+                        headers = r.headers.copy()
+                        headers.pop("content-encoding", None)
+                        headers.pop("content-length", None)
                         return httpx.Response(
-                            r.status_code, headers=r.headers, content=bytes(data), request=r.request
+                            r.status_code, headers=headers, content=bytes(data), request=r.request
                         )
 
                 try:

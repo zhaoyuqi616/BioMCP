@@ -117,3 +117,18 @@ async def test_false_prefix_match_rejected():
             await service.normalize("QNOTREAL")
     finally:
         await service.close()
+
+
+async def test_compressed_gene_response():
+    import gzip
+
+    body = gzip.compress(b'{"symbol":"SPP1"}')
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, stream=httpx.ByteStream(body)
+            )
+        )
+    ) as client:
+        response = await Executor().get(client, "https://example.org/query")
+    assert response.json() == {"symbol": "SPP1"}
