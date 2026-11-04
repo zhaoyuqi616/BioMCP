@@ -135,3 +135,48 @@ async def test_genomic_sequence_optional():
         assert r["sources"]["genomic_sequence"]["data"]["sequence"] == "ACGTACGT"
     finally:
         await svc.close()
+
+
+@pytest.mark.asyncio
+async def test_spp1_archive_and_hpa_public_field_names():
+    gene_id = "ENSG00000118785"
+
+    def handler(req):
+        if req.url.host == "rest.ensembl.org":
+            return httpx.Response(503)
+        if req.url.host == "oct2024.rest.ensembl.org":
+            return httpx.Response(
+                200,
+                json={
+                    "id": gene_id,
+                    "species": "homo_sapiens",
+                    "assembly_name": "GRCh38",
+                    "seq_region_name": "4",
+                    "start": 87975667,
+                    "end": 87983532,
+                    "strand": 1,
+                },
+            )
+        if req.url.host == "www.proteinatlas.org":
+            return httpx.Response(
+                200,
+                json={
+                    "Gene": "SPP1",
+                    "Ensembl": gene_id,
+                    "RNA tissue specificity": "Tissue enhanced",
+                    "RNA tissue specific nTPM": {"x": 1},
+                },
+            )
+        raise AssertionError(req.url)
+
+    service = ResearchService(transport=httpx.MockTransport(handler))
+    identity = {"ensembl_id": gene_id, "symbol": "SPP1"}
+    try:
+        ens = await service._ensembl(identity)
+        assert ens["gene_id"] == gene_id and ens["start"] == 87975667
+        assert "October 2024" in ens["dataset"] and "oct2024" in ens["url"]
+        fields = (await service._hpa(identity))["fields"]
+        assert fields["rna_tissue_specificity"] == "Tissue enhanced"
+        assert fields["rna_tissue_specific_nTPM"] == {"x": 1}
+    finally:
+        await service.close()

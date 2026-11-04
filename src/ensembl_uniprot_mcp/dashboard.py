@@ -103,6 +103,7 @@ def genomics_html(result):
         "<h3>Genomic coordinates</h3>"
         + rows(
             {
+                "Dataset": d.get("dataset"),
                 "Assembly": d.get("assembly"),
                 "Chromosome": d.get("chromosome"),
                 "Start (1-based)": d.get("start"),

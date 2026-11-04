@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 BASES = {
     "mygene": "https://mygene.info/v3",
     "ensembl": "https://rest.ensembl.org",
+    "ensembl_archive": "https://oct2024.rest.ensembl.org",
     "uniprot": "https://rest.uniprot.org",
     "hpa": "https://www.proteinatlas.org",
     "pubmed": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
@@ -168,7 +169,22 @@ class ResearchService:
     async def _ensembl(self, n):
         if not n["ensembl_id"]:
             raise ProviderError("No Ensembl gene ID")
-        d = await self.get("ensembl", "/lookup/id/" + n["ensembl_id"], {"expand": 0})
+        path = "/lookup/id/" + n["ensembl_id"]
+        dataset = "Current Ensembl REST"
+        url = f"https://www.ensembl.org/Homo_sapiens/Gene/Summary?g={n['ensembl_id']}"
+        try:
+            d = await asyncio.wait_for(self.get("ensembl", path, {"expand": 0}), 12)
+        except (asyncio.TimeoutError, ProviderError) as exc:
+            if isinstance(exc, ProviderError) and exc.code not in {
+                "upstream_timeout",
+                "upstream_unavailable",
+            }:
+                raise
+            d = await self.get("ensembl_archive", path, {"content-type": "application/json"})
+            if d.get("id") != n["ensembl_id"] or d.get("species") != "homo_sapiens":
+                raise ProviderError("archive_identity_mismatch")
+            dataset = "Ensembl October 2024 archive (primary lookup unavailable)"
+            url = BASES["ensembl_archive"] + path + "?content-type=application/json"
         return {
             "gene_id": d.get("id"),
             "assembly": d.get("assembly_name"),
@@ -178,7 +194,8 @@ class ResearchService:
             "strand": d.get("strand"),
             "biotype": d.get("biotype"),
             "description": d.get("description"),
-            "url": f"https://www.ensembl.org/Homo_sapiens/Gene/Summary?g={n['ensembl_id']}",
+            "dataset": dataset,
+            "url": url,
         }
 
     async def _genomic_sequence(self, n):
@@ -244,7 +261,8 @@ class ResearchService:
             "tissue_expression",
             "rna_single_cell_type_specificity",
         ]
-        fields = {k: d[k] for k in keys if k in d}
+        normalized = {k.lower().replace(" ", "_"): v for k, v in d.items()}
+        fields = {k: normalized[k.lower()] for k in keys if k.lower() in normalized}
         if not fields:
             raise ProviderError("schema_error")
         return {
