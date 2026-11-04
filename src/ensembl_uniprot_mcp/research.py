@@ -73,7 +73,10 @@ class ResearchService:
             raise ValueError(
                 "Enter a single gene symbol, alias, Ensembl ID, or UniProt accession (2-40 characters)."
             )
-        term = query.strip()
+        original = query.strip()
+        # Human TSP1 is the documented THBS1 synonym in the HPA gene record.
+        # Query the canonical symbol and still require an exact returned symbol.
+        term = "THBS1" if original.upper() == "TSP1" else original
         if term.upper().startswith("ENSG"):
             d = await self.get(
                 "mygene",
@@ -116,6 +119,8 @@ class ResearchService:
         if not hits:
             raise ValueError("No matching human gene found; verify the identifier or species.")
         best = hits[0]
+        if term != original and best["symbol"].upper() != term:
+            raise ValueError("Could not verify THBS1 for TSP1.")
         if rank(best)[0] == 2:
 
             def exact_identifier(hit):
@@ -139,7 +144,10 @@ class ResearchService:
             and rank(best)[0] <= 1
             and hits[1].get("symbol") != best.get("symbol")
         ):
-            raise ValueError("Ambiguous alias; provide an official HGNC gene symbol.")
+            raise ValueError(
+                "Ambiguous alias. Choose an official symbol: "
+                + ", ".join(sorted({h["symbol"] for h in hits if rank(h)[0] == rank(best)[0]}))
+            )
         ens = best.get("ensembl", {})
         if isinstance(ens, list):
             if len(ens) > 1:
@@ -154,7 +162,7 @@ class ResearchService:
                 raise ValueError("Multiple protein mappings; explicit accession required.")
             acc = acc[0] if acc else None
         return {
-            "input": term,
+            "input": original,
             "symbol": best["symbol"],
             "name": best.get("name"),
             "entrez_id": best.get("entrezgene"),
@@ -162,7 +170,7 @@ class ResearchService:
             "uniprot_accession": acc,
             "normalization_source": "MyGene.info (human)",
             "match_type": "exact_symbol"
-            if best["symbol"].casefold() == term.casefold()
+            if best["symbol"].casefold() == original.casefold()
             else "alias_or_identifier",
             "url": f"https://mygene.info/v3/gene/{best.get('_id', '')}",
         }

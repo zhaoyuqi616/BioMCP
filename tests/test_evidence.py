@@ -75,3 +75,41 @@ async def test_trial_identity_and_url_boundary():
         assert (await evidence.trial("NCT00000001"))["status"] == "unavailable"
     finally:
         await svc.close()
+
+
+async def test_consensus_fallback_and_alias():
+    def handler(req):
+        if req.url.host == "mygene.info":
+            assert req.url.params["q"] == "THBS1"
+            return httpx.Response(
+                200, json={"hits": [{"symbol": "THBS1", "ensembl": {"gene": "ENSG1"}}]}
+            )
+        return httpx.Response(
+            200,
+            text="""<proteinAtlas><entry><identifier db="Ensembl" id="ENSG1"/>
+        <rnaExpression assayType="consensusTissue"><data><tissue>Brain</tissue>
+        <level type="normalizedRNAExpression" unitRNA="nTPM" expRNA="0"/></data>
+        <data><tissue>Kidney</tissue><level type="normalizedRNAExpression" unitRNA="nTPM" expRNA="68.3"/>
+        </data></rnaExpression></entry></proteinAtlas>""",
+        )
+
+    svc = ResearchService(transport=httpx.MockTransport(handler))
+    try:
+        identity = await svc.normalize("tsp1")
+        assert identity["input"] == "tsp1" and identity["symbol"] == "THBS1"
+        result = {
+            "normalized_gene": identity,
+            "sources": {
+                "hpa": {
+                    "status": "ok",
+                    "data": {"fields": {"rna_tissue_specificity": "Low tissue specificity"}},
+                }
+            },
+        }
+        snapshot = await ReportService(svc).evidence.snapshot(result, ["expression"])
+        assert list(figures(snapshot)[0].data[0].x) == [0, 68.3]
+        assert all(
+            r["url"].endswith(".xml") for r in snapshot["records"] if r["kind"] == "tissue_rna"
+        )
+    finally:
+        await svc.close()

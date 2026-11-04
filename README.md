@@ -86,7 +86,7 @@ python scripts/check.py
 python tutorials/validate_mcp.py --output /tmp/biomcp-offline.json
 ```
 
-The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **36 tests**, including actual MCP subprocess tests with mocked providers.
+The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **37 tests**, including actual MCP subprocess tests with mocked providers.
 
 For a small live-provider check:
 

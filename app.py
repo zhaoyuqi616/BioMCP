@@ -14,9 +14,11 @@ from ensembl_uniprot_mcp.dashboard import (
     expression_html,
     fasta,
     genomics_html,
+    link,
     literature_html,
     overview_html,
     protein_html,
+    rows,
     save_fasta,
     source_data,
 )
@@ -138,6 +140,35 @@ async def run_search(query, max_papers, include_protein, include_genomic):
     return result
 
 
+def readable(value):
+    if isinstance(value, dict):
+        return " · ".join(
+            f"{k.replace('_', ' ')}: {readable(v)}" for k, v in value.items() if v is not None
+        )
+    if isinstance(value, list):
+        return ", ".join(readable(v) for v in value)
+    return str(value) if value is not None else "Not reported"
+
+
+def record_card(key, raw):
+    record = next(
+        (r for r in (raw or {}).get("snapshot", {}).get("records", []) if r["id"] == key), None
+    )
+    if not record:
+        return "<p>Search for a gene to inspect its evidence.</p>"
+    return (
+        f"<h3>{esc(record['subject'])}</h3>"
+        + rows(
+            {
+                k.replace("_", " ").capitalize(): readable(v)
+                for k, v in record.items()
+                if k not in {"id", "subject", "url"}
+            }
+        )
+        + link(record.get("url"), "Open source record")
+    )
+
+
 def explorer(raw):
     from ensembl_uniprot_mcp.figures import figures
 
@@ -152,17 +183,20 @@ def explorer(raw):
                 s["source"],
                 s["capability"],
                 s["status"],
-                str(s["coverage"] or ""),
+                readable(s["coverage"]) if s["coverage"] is not None else "—",
                 s["retrieved_at"],
                 s["url"],
             ]
             for s in snapshot.get("sources", [])
         ],
-        [[r["source"], r["subject"], str(r["value"]), r["url"]] for r in records],
-        gr.Dropdown(choices=choices, value=None),
-        gr.Dropdown(choices=trials, value=None),
-        {},
-        {},
+        [[r["source"], r["subject"], readable(r["value"]), r["url"]] for r in records],
+        gr.Dropdown(choices=choices, value=choices[0][1] if choices else None),
+        gr.Dropdown(choices=trials, value=trials[0] if trials else None, interactive=bool(trials)),
+        record_card(choices[0][1] if choices else None, raw),
+        "<p>Select Retrieve study for the linked trial.</p>"
+        if trials
+        else "<p>No linked clinical trial in this report.</p>",
+        gr.Button(interactive=bool(trials)),
     )
 
 
@@ -172,8 +206,11 @@ async def fetch_trial(nct, raw):
     if nct not in {
         n for r in raw.get("snapshot", {}).get("records", []) for n in r.get("trials", [])
     }:
-        return {"status": "Select a trial from this report"}
-    return await get_reports().evidence.trial(nct)
+        return "<p>No linked study selected.</p>"
+    study = await get_reports().evidence.trial(nct)
+    return rows(
+        {k.capitalize(): readable(v) for k, v in study.items() if k != "source_url"}
+    ) + link(study.get("source_url"), "Open study")
 
 
 async def refresh_section(raw, section):
@@ -234,18 +271,27 @@ def main():
             with gr.Tab("Literature"):
                 literature = gr.HTML()
             with gr.Tab("Evidence explorer"):
-                rna_plot = gr.Plot()
-                disease_plot = gr.Plot()
-                drug_plot = gr.Plot()
-                evidence_table = gr.Dataframe(
-                    headers=["Source", "Subject", "Value", "Record URL"], interactive=False
-                )
-                record_id = gr.Dropdown(label="Inspect evidence record", choices=[])
-                record_detail = gr.JSON(label="Evidence details")
-                trial_id = gr.Dropdown(label="Linked clinical trial", choices=[])
-                trial_button = gr.Button("Retrieve study")
-                trial_json = gr.JSON(label="ClinicalTrials.gov study")
+                with gr.Tab("Tissue RNA"):
+                    rna_plot = gr.Plot()
+                with gr.Tab("Disease associations"):
+                    disease_plot = gr.Plot()
+                with gr.Tab("Drug candidates"):
+                    drug_plot = gr.Plot()
+                with gr.Tab("Evidence records"):
+                    record_id = gr.Dropdown(label="Choose a source record", choices=[])
+                    record_detail = gr.HTML()
+                    with gr.Accordion("Browse all records", open=False):
+                        evidence_table = gr.Dataframe(
+                            headers=["Source", "Subject", "Finding", "Record URL"],
+                            interactive=False,
+                            wrap=True,
+                        )
+                with gr.Tab("Linked studies"):
+                    trial_id = gr.Dropdown(label="ClinicalTrials.gov identifier", choices=[])
+                    trial_button = gr.Button("Retrieve study", interactive=False)
+                    trial_json = gr.HTML()
             with gr.Tab("Sources"):
+                health = gr.HTML()
                 source_table = gr.Dataframe(
                     headers=["Source", "Capability", "Status", "Coverage", "Retrieved", "URL"],
                     interactive=False,
@@ -254,8 +300,6 @@ def main():
                     ["diseases", "drugs"], value="diseases", label="Refresh evidence section"
                 )
                 refresh_button = gr.Button("Refresh selected section")
-            with gr.Tab("Source health"):
-                health = gr.HTML()
             with gr.Tab("Raw JSON"):
                 raw_json = gr.JSON(label="Structured response and provider errors")
         refresh_button.click(
@@ -276,13 +320,11 @@ def main():
                 trial_id,
                 record_detail,
                 trial_json,
+                trial_button,
             ],
         )
         record_id.change(
-            lambda key, raw: next(
-                (r for r in (raw or {}).get("snapshot", {}).get("records", []) if r["id"] == key),
-                {},
-            ),
+            record_card,
             [record_id, raw_json],
             record_detail,
         )

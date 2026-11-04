@@ -11,6 +11,7 @@ import re
 import time
 from datetime import datetime, timezone
 from uuid import uuid4
+from xml.etree import ElementTree as ET
 
 import httpx
 
@@ -54,6 +55,37 @@ class EvidenceService:
             "records": records,
             "retrieved_at": self._curations[1],
             "source_url": CLINGEN,
+        }
+
+    async def consensus(self, gene_id):
+        url = f"https://www.proteinatlas.org/{gene_id}.xml"
+        response = await self.research.executor.get(
+            self.research.client, url, accept="application/xml"
+        )
+        if b"<!DOCTYPE" in response.content.upper():
+            raise ValueError("Unexpected HPA document type")
+        try:
+            entry = ET.fromstring(response.content).find("entry")
+        except ET.ParseError as exc:
+            raise ValueError("Invalid HPA XML") from exc
+        if entry is None or entry.find(f"identifier[@db='Ensembl'][@id='{gene_id}']") is None:
+            raise ValueError("Unexpected HPA gene")
+        values = {}
+        for tissue in entry.findall("rnaExpression[@assayType='consensusTissue']/data"):
+            measurement = tissue.find("level[@type='normalizedRNAExpression'][@unitRNA='nTPM']")
+            name = tissue.findtext("tissue")
+            if name and measurement is not None:
+                try:
+                    value = float(measurement.get("expRNA", ""))
+                except ValueError:
+                    continue
+                if math.isfinite(value) and value >= 0:
+                    values[name] = value
+        return {
+            "status": "ok" if values else "no_data",
+            "values": values,
+            "source_url": url,
+            "retrieved_at": now(),
         }
 
     async def trial(self, identifier):
@@ -121,6 +153,14 @@ class EvidenceService:
                 return {"status": "unavailable", "retrieved_at": now()}
 
         jobs = {}
+        hpa = result["sources"].get("hpa", {}).get("data", {})
+        if (
+            "expression" in sections
+            and hpa
+            and identity.get("ensembl_id")
+            and not hpa.get("fields", {}).get("rna_tissue_specific_nTPM")
+        ):
+            jobs["consensus"] = safe("consensus", self.consensus, identity["ensembl_id"])
         if "diseases" in sections:
             jobs["diseases"] = safe("diseases", self.reports.diseases, identity)
             jobs["clingen"] = safe("clingen", self.clingen, identity["symbol"])
@@ -255,6 +295,25 @@ def build_snapshot(result, sections, enriched):
                         entry.get("retrieved_at"),
                         unit="nTPM",
                     )
+    if consensus := enriched.get("consensus"):
+        observe(
+            "HPA",
+            "consensus tissue RNA",
+            consensus["status"],
+            consensus.get("retrieved_at"),
+            consensus.get("source_url"),
+        )
+        for tissue, value in consensus.get("values", {}).items():
+            add(
+                "HPA",
+                "tissue_rna",
+                tissue,
+                value,
+                consensus["source_url"],
+                consensus["retrieved_at"],
+                unit="nTPM",
+                assay="consensusTissue",
+            )
     diseases = enriched.get("diseases", {})
     ot = diseases.get("open_targets", {})
     default = "unavailable" if "diseases" in sections else "not_requested"

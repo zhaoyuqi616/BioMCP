@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 def figures(snapshot):
     records = snapshot.get("records", [])
     expression = sorted((r for r in records if r["kind"] == "tissue_rna"), key=lambda r: r["value"])
+    total = len(expression)
+    expression = expression[-15:]
     rna = go.Figure(
         go.Bar(
             x=[r["value"] for r in expression],
@@ -13,7 +15,11 @@ def figures(snapshot):
             orientation="h",
         )
     )
-    rna.update_layout(title="Selected tissues · HPA RNA", xaxis_title="nTPM")
+    rna.update_layout(
+        title=f"HPA tissue RNA · {len(expression)} of {total} measured tissues",
+        xaxis_title="nTPM",
+        yaxis={"automargin": True},
+    )
     associations = [r for r in records if r["kind"] == "association"]
     categories = sorted({c["id"] for r in associations for c in r["categories"]})
     scores = [{c["id"]: c["score"] for c in r["categories"]} for r in associations]
@@ -41,5 +47,15 @@ def figures(snapshot):
     drug.update_layout(title="Drug candidates by clinical stage", xaxis_title="Reported stage")
     for plot, values in [(rna, expression), (disease, associations), (drug, entries)]:
         if not values:
-            plot.add_annotation(text="No records available for this figure", showarrow=False)
+            message = (
+                "No numeric tissue RNA measurements returned by HPA."
+                if plot is rna
+                else "No records available."
+            )
+            plot.update_xaxes(visible=False)
+            plot.update_yaxes(visible=False)
+            plot.update_layout(height=175)
+            plot.add_annotation(
+                text=message, x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False
+            )
     return rna, disease, drug
