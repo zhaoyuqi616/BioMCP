@@ -11,6 +11,8 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
+from .operations import ACTIVE, COUNTS
+
 DEADLINE = ContextVar("deadline", default=None)
 
 
@@ -134,7 +136,10 @@ class Executor:
         self, client, url, *, params=None, accept="application/json", query_body=None, headers=None
     ):
         scope = httpx.URL(url).host
+        operation = ACTIVE.get()
         deadline = DEADLINE.get() or time.monotonic() + 30
+        if operation:
+            deadline = min(deadline, operation.started + 45)
         token = DEADLINE.set(deadline)
         try:
             for attempt in range(3):
@@ -144,6 +149,11 @@ class Executor:
 
                 async def fetch():
                     await self.coordinator.acquire(scope)
+                    if operation:
+                        if operation.attempts >= 24:
+                            raise UpstreamError("attempt_budget_exhausted")
+                        operation.attempts += 1
+                    COUNTS[f"{scope}.attempt"] += 1
                     async with client.stream(
                         "POST" if query_body is not None else "GET",
                         url,
@@ -175,6 +185,7 @@ class Executor:
                         raise UpstreamError("upstream_timeout") from None
                 else:
                     status = response.status_code
+                    COUNTS[f"{scope}.http_{status}"] += 1
                     if 200 <= status < 300:
                         await self.coordinator.outcome(scope, False)
                         return response

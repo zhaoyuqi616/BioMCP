@@ -4,7 +4,9 @@
 
 BioMCP exposes Ensembl and UniProt lookups through the Model Context Protocol (MCP), and combines MyGene.info, Ensembl, UniProt, Human Protein Atlas (HPA), and PubMed into human-gene research results.
 
-**Current release: v0.7.0 — local MVP.** It includes bounded requests, safer retries, partial results and automated testing. Hosted authentication, private databases, authorized exports and durable batch execution remain open work. Use public, non-confidential research inputs only.
+**Current release: v0.8.0 — local dashboard and experimental authenticated pilot API.** This release adds explicit regulatory evidence states, a shared search budget, operational counters, authorized expiring API exports, and reproducible release checks. Use public, non-confidential research inputs only. Private databases and durable batch execution remain future work.
+
+See the [v0.8 release and deployment guide](docs/guides/v0.8.md) for scope, validation and rollback.
 
 ## Quick start
 
@@ -15,7 +17,8 @@ git clone https://github.com/zhaoyuqi616/BioMCP.git
 cd BioMCP
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install uv==0.13.7
+uv sync --frozen --extra dev --extra pilot
 ensembl-uniprot-mcp --transport stdio
 ```
 
@@ -86,7 +89,7 @@ python scripts/check.py
 python tutorials/validate_mcp.py --output /tmp/biomcp-offline.json
 ```
 
-The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **37 tests**, including actual MCP subprocess tests with mocked providers.
+The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **42 tests**, including actual MCP subprocess tests with mocked providers.
 
 For a small live-provider check:
 
@@ -94,7 +97,7 @@ For a small live-provider check:
 python tutorials/validate_mcp.py --live --output /tmp/biomcp-live.json
 ```
 
-Follow the [end-to-end validation tutorial](docs/guides/validation.md) for expected output, dashboard checks, troubleshooting and an acceptance worksheet. A partial response is useful degradation evidence; record unavailable providers separately. Live APIs, Redis resilience and hosted security are not covered by the deterministic suite.
+Follow the [end-to-end validation tutorial](docs/guides/validation.md) for expected output, dashboard checks, troubleshooting and an acceptance worksheet. A partial response is useful degradation evidence; record unavailable providers separately. Browser and Redis checks are separate executable drills described in the v0.8 guide. Live provider availability, organization identity-provider integration and container deployment require environment-specific validation.
 
 ## Repository structure
 

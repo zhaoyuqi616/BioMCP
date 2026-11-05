@@ -90,7 +90,7 @@ async def test_fda_requires_exact_ingredient_and_approval():
     try:
         service = ReportService(research)
         assert (await service.fda_approval("GEFITINIB"))["status"] == "approval_record_found"
-        assert (await service.fda_approval("OTHER"))["status"] == "unverified"
+        assert (await service.fda_approval("OTHER"))["status"] == "no_exact_match"
     finally:
         await research.close()
 

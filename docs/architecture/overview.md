@@ -1,6 +1,6 @@
 # BioMCP server architecture
 
-BioMCP helps a researcher trace a single human gene from an identifier to the records behind its expression, disease associations and drug candidates. The local dashboard and MCP clients use the same research and evidence services. This page describes the implemented v0.7 server.
+BioMCP helps a researcher trace a single human gene from an identifier to the records behind its expression, disease associations and drug candidates. The local dashboard and MCP clients use the same research and evidence services. This page describes the implemented v0.8 server.
 
 ## From query to evidence
 
@@ -52,3 +52,9 @@ The process shares a bounded core research cache and short-lived public enrichme
 Refreshing Diseases or Drug Targets bypasses the corresponding enrichment result cache. Figure interaction, record inspection and chart legend filtering consume the existing snapshot. ClinicalTrials.gov detail requires a validated NCT identifier and uses a fixed provider endpoint.
 
 This release serves local public-data research. See the [implementation status](../operations/implementation-status.md) and [proposed hosted design](mvp-design.md) for deployment requirements. ClinVar variant detail and Reactome pathway navigation remain future extensions.
+
+## Optional pilot API boundary
+
+The FastAPI pilot checks organization bearer tokens and current subject grants before calling the evidence service. Its SQLite export store enforces ownership and expiry at download time. This API is separate from Gradio and MCP transport authentication. See the [v0.8 deployment guide](../guides/v0.8.md) for configuration and acceptance gates.
+
+Dashboard searches and `gene_evidence` carry a shared operation context through the executor, imposing a 45-second deadline and 24 outbound attempts. Provider cooldowns remain coordinated by Redis when configured. Operational counters contain provider scopes and HTTP outcomes, with no token or query labels.

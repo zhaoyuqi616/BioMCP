@@ -349,8 +349,25 @@ async def gene_evidence(query: str, sections: list[str] | None = None) -> dict[s
 
     selected = validate_sections(SECTIONS if sections is None else sections)
     service = get_reports()
-    result = await service.research.research(ResearchRequest(query=query, include_sequence=False))
-    return await service.evidence.snapshot(result, selected)
+    import asyncio
+
+    from .operations import ACTIVE, Operation
+
+    operation = Operation()
+    token = ACTIVE.set(operation)
+    try:
+        result = await asyncio.wait_for(
+            service.research.research(ResearchRequest(query=query, include_sequence=False)),
+            operation.remaining,
+        )
+        operation.core_seconds = operation.summary()["elapsed_seconds"]
+        snapshot = await asyncio.wait_for(
+            service.evidence.snapshot(result, selected), operation.remaining
+        )
+        snapshot["operation"] = operation.summary()
+        return snapshot
+    finally:
+        ACTIVE.reset(token)
 
 
 @mcp.tool()

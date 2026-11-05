@@ -316,7 +316,11 @@ def drugs_html(result):
                 esc(
                     "FDA ingredient approval record"
                     if state == "approval_record_found"
-                    else "FDA approval unverified"
+                    else {
+                        "no_exact_match": "No exact FDA match",
+                        "lookup_failed": "FDA lookup failed",
+                        "not_checked": "Not checked",
+                    }.get(state, "FDA approval unverified")
                 ),
                 link(fda.get("source_url"), fda.get("application", "FDA source")),
             ]

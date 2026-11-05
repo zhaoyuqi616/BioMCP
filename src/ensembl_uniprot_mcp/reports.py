@@ -184,7 +184,7 @@ class ReportService:
                 try:
                     drug["fda"] = await asyncio.wait_for(self.fda_approval(drug["name"]), 3)
                 except asyncio.TimeoutError:
-                    drug["fda"] = {"status": "unverified", "note": "FDA lookup timed out."}
+                    drug["fda"] = {"status": "lookup_failed", "note": "FDA lookup timed out."}
             return {
                 "status": "ok" if drugs else "no_data",
                 "drugs": drugs,
@@ -206,7 +206,7 @@ class ReportService:
         import re
 
         if not re.fullmatch(r"[A-Za-z0-9 .()/-]{2,100}", name):
-            return {"status": "unverified"}
+            return {"status": "not_checked", "note": "Ingredient name cannot be queried safely."}
         try:
             response = await self.research.executor.get(
                 self.research.client,
@@ -216,7 +216,10 @@ class ReportService:
                     "limit": 10,
                 },
             )
-            for record in response.json().get("results", []):
+            records = response.json()["results"]
+            if not isinstance(records, list):
+                raise TypeError("Invalid FDA results")
+            for record in records:
                 ingredients = [
                     i.get("name", "").casefold()
                     for p in record.get("products", [])
@@ -228,7 +231,11 @@ class ReportService:
                 approvals = [
                     s for s in record.get("submissions", []) if s.get("submission_status") == "AP"
                 ]
-                if name.casefold() in ingredients and approvals:
+                if (
+                    name.casefold() in ingredients
+                    and approvals
+                    and record.get("application_number")
+                ):
                     return {
                         "status": "approval_record_found",
                         "application": record.get("application_number"),
@@ -239,8 +246,12 @@ class ReportService:
                         "note": "Ingredient approval record. Target-specific indication and current marketing status are not verified.",
                     }
             return {
-                "status": "unverified",
+                "status": "no_exact_match",
                 "note": "No exact ingredient approval record matched in the bounded search.",
             }
-        except (UpstreamError, ValueError, KeyError, TypeError):
-            return {"status": "unverified", "note": "FDA records unavailable or no exact match."}
+        except UpstreamError as exc:
+            if exc.code == "upstream_http_404":
+                return {"status": "no_exact_match", "note": "No record returned for this search."}
+            return {"status": "lookup_failed", "error": exc.code}
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return {"status": "lookup_failed", "error": "invalid_response"}

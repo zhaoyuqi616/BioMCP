@@ -66,6 +66,44 @@ def status_html(result: dict) -> str:
 
 
 async def search_updates(query, max_papers, include_protein, include_genomic):
+    import asyncio
+
+    from ensembl_uniprot_mcp.operations import ACTIVE, Operation
+
+    operation = Operation()
+    updates = _search_updates(query, max_papers, include_protein, include_genomic)
+    core = None
+    try:
+        while True:
+            token = ACTIVE.set(operation)
+            try:
+                row = await asyncio.wait_for(updates.__anext__(), operation.remaining)
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError:
+                if core:
+                    output = list(core)
+                    output[12] = output[13] = (
+                        "<p>Enrichment deadline reached. Core evidence is available.</p>"
+                    )
+                    row = tuple(output)
+                else:
+                    row = empty_result("Search deadline reached.")
+                break
+            finally:
+                ACTIVE.reset(token)
+            if core is None:
+                operation.core_seconds = operation.summary()["elapsed_seconds"]
+                core = row
+            if row[10]:
+                row[10]["operation"] = operation.summary()
+            yield row
+        yield row
+    finally:
+        await updates.aclose()
+
+
+async def _search_updates(query, max_papers, include_protein, include_genomic):
     if not query or not query.strip():
         yield empty_result("Enter a gene symbol or identifier to begin.")
         return
@@ -232,7 +270,7 @@ def main():
         raise RuntimeError("Set BIOMCP_USER and BIOMCP_PASSWORD_HASH before starting")
 
     with gr.Blocks(title="BioMCP Research Dashboard", css=CSS) as demo:
-        gr.Markdown("# BioMCP Research Dashboard · v0.7.0")
+        gr.Markdown("# BioMCP Research Dashboard · v0.8.0")
         gr.Markdown(
             "Public human gene/protein research only. **Do not enter patient information.**"
         )
@@ -357,7 +395,7 @@ def main():
         )
     demo.queue(default_concurrency_limit=2).launch(
         server_name="127.0.0.1",
-        server_port=7860,
+        server_port=int(os.getenv("BIOMCP_PORT", "7860")),
         share=False,
         auth=authenticate,
         show_error=False,

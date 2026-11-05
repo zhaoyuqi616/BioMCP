@@ -366,10 +366,13 @@ def build_snapshot(result, sections, enriched):
         drugs.get("source_url"),
         {"displayed": len(drugs.get("drugs", [])), "total": drugs.get("total")},
     )
-    checked = 0
+    counts = dict.fromkeys(
+        ("approval_record_found", "no_exact_match", "lookup_failed", "not_checked"), 0
+    )
     for d in drugs.get("drugs", []):
         fda = d.get("fda", {})
-        checked += fda.get("status", "not_checked") != "not_checked"
+        status = fda.get("status", "not_checked")
+        counts[status if status in counts else "lookup_failed"] += 1
         ids = sorted(
             {
                 m
@@ -387,11 +390,12 @@ def build_snapshot(result, sections, enriched):
             fda=fda,
             trials=ids,
         )
+    checked = sum(counts.values()) - counts["not_checked"]
     observe(
         "Drugs@FDA",
         "ingredient verification",
-        "checked" if checked else "not_checked",
-        coverage={"checked": checked, "limit": 5},
+        "partial" if counts["lookup_failed"] else "checked" if checked else "not_checked",
+        coverage={"attempted": checked, **counts, "limit": 5},
     )
     observe("ClinicalTrials.gov", "trial detail", "on_demand")
     return {
@@ -399,7 +403,9 @@ def build_snapshot(result, sections, enriched):
         "request_id": str(uuid4()),
         "identity": identity,
         "sections": sections,
-        "status": "partial" if any(s["status"] == "unavailable" for s in sources) else "complete",
+        "status": "partial"
+        if any(s["status"] in {"unavailable", "partial"} for s in sources)
+        else "complete",
         "records": records,
         "sources": sources,
         "enrichment": enriched,
