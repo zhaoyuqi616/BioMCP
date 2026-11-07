@@ -4,9 +4,15 @@
 
 BioMCP exposes Ensembl and UniProt lookups through the Model Context Protocol (MCP), and combines MyGene.info, Ensembl, UniProt, Human Protein Atlas (HPA), and PubMed into human-gene research results.
 
-**Current release: v0.8.0 — local dashboard and experimental authenticated pilot API.** This release adds explicit regulatory evidence states, a shared search budget, operational counters, authorized expiring API exports, and reproducible release checks. Use public, non-confidential research inputs only. Private databases and durable batch execution remain future work.
+**Current release: v0.9.0 — local dashboard and experimental authenticated pilot API.** This release adds explicit regulatory evidence states, a shared search budget, operational counters, authorized expiring API exports, and reproducible release checks. Use public, non-confidential research inputs only. Private databases and durable batch execution remain future work.
 
 See the [v0.8 release and deployment guide](docs/guides/v0.8.md) for scope, validation and rollback.
+
+## Evidence interpretation in v0.9
+
+The evidence explorer is organized around expression, disease associations, drug candidates and supporting records. Filter by source, research question or tissue/disease/drug name. Each record includes human-gene context, provenance and an interpretation limit. Conflicting source findings remain separate; scores are not combined.
+
+Drug clinical stage, target association and ingredient approval are distinct. Mechanism, directness and indication-specific approval remain explicitly unverified when the adapter does not establish them. [Read the v0.9 architecture and validation scope](docs/guides/v0.9.md).
 
 ## Quick start
 
@@ -89,7 +95,7 @@ python scripts/check.py
 python tutorials/validate_mcp.py --output /tmp/biomcp-offline.json
 ```
 
-The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **42 tests**, including actual MCP subprocess tests with mocked providers.
+The check command runs lint, formatting, compilation, local documentation-link checks and the test suite. The current baseline has **44 tests**, including actual MCP subprocess tests with mocked providers.
 
 For a small live-provider check:
 

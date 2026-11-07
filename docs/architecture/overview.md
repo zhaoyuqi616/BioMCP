@@ -1,6 +1,6 @@
 # BioMCP server architecture
 
-BioMCP helps a researcher trace a single human gene from an identifier to the records behind its expression, disease associations and drug candidates. The local dashboard and MCP clients use the same research and evidence services. This page describes the implemented v0.8 server.
+BioMCP helps a researcher trace a single human gene from an identifier to the records behind its expression, disease associations and drug candidates. The local dashboard and MCP clients use the same research and evidence services. This page describes the implemented v0.9 server.
 
 ## From query to evidence
 
@@ -58,3 +58,11 @@ This release serves local public-data research. See the [implementation status](
 The FastAPI pilot checks organization bearer tokens and current subject grants before calling the evidence service. Its SQLite export store enforces ownership and expiry at download time. This API is separate from Gradio and MCP transport authentication. See the [v0.8 deployment guide](../guides/v0.8.md) for configuration and acceptance gates.
 
 Dashboard searches and `gene_evidence` carry a shared operation context through the executor, imposing a 45-second deadline and 24 outbound attempts. Provider cooldowns remain coordinated by Redis when configured. Operational counters contain provider scopes and HTTP outcomes, with no token or query labels.
+
+## Claim interpretation and question-based exploration
+
+Provider adapters retain original values. The evidence builder creates separate disease association, curated validity, drug candidate and regulatory lookup records. The interpretation layer adds evidence type, human-gene context, provenance and a source-specific interpretation limit. Missing retrieval times and dataset releases are explicitly unknown. The v1 envelope is retained with additive `interpretation_version`, preserving existing consumers.
+
+The dashboard filters the snapshot by research question, source and subject text before rendering figures, record tables and selected evidence cards. Filters do not issue provider requests. Source coverage remains unfiltered so missing records can be investigated. Curated classifications and association scores remain separate, including apparent disagreement. There is no inferred cross-source confidence score or automatic disease-name equivalence.
+
+Drug records expose target association, mechanism, directness, indication and regulatory verification as separate relationships. Current adapters do not establish mechanism or indication-level approval. These fields remain explicitly unverified, while a separate Drugs@FDA record preserves the ingredient lookup outcome and application identifier where returned.

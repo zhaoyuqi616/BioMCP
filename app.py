@@ -207,15 +207,16 @@ def record_card(key, raw):
     )
 
 
-def explorer(raw):
+def explorer(raw, sources=None, question="All evidence", search=""):
     from ensembl_uniprot_mcp.figures import figures
+    from ensembl_uniprot_mcp.interpretation import select_records
 
     snapshot = (raw or {}).get("snapshot", {})
-    records = snapshot.get("records", [])
+    records = select_records(snapshot, sources, question, search)
     choices = [(f"{r['source']} · {r['subject']} · {r['kind']}", r["id"]) for r in records]
     trials = sorted({n for r in records for n in r.get("trials", [])})
     return (
-        *figures(snapshot),
+        *figures({**snapshot, "records": records}),
         [
             [
                 s["source"],
@@ -227,7 +228,17 @@ def explorer(raw):
             ]
             for s in snapshot.get("sources", [])
         ],
-        [[r["source"], r["subject"], readable(r["value"]), r["url"]] for r in records],
+        [
+            [
+                r["source"],
+                r.get("evidence_type", r["kind"]),
+                r["subject"],
+                readable(r["value"]),
+                r.get("interpretation_limit", ""),
+                r["url"],
+            ]
+            for r in records
+        ],
         gr.Dropdown(choices=choices, value=choices[0][1] if choices else None),
         gr.Dropdown(choices=trials, value=trials[0] if trials else None, interactive=bool(trials)),
         record_card(choices[0][1] if choices else None, raw),
@@ -270,7 +281,7 @@ def main():
         raise RuntimeError("Set BIOMCP_USER and BIOMCP_PASSWORD_HASH before starting")
 
     with gr.Blocks(title="BioMCP Research Dashboard", css=CSS) as demo:
-        gr.Markdown("# BioMCP Research Dashboard · v0.8.0")
+        gr.Markdown("# BioMCP Research Dashboard · v0.9.0")
         gr.Markdown(
             "Public human gene/protein research only. **Do not enter patient information.**"
         )
@@ -309,18 +320,45 @@ def main():
             with gr.Tab("Literature"):
                 literature = gr.HTML()
             with gr.Tab("Evidence explorer"):
-                with gr.Tab("Tissue RNA"):
+                gr.Markdown(
+                    "Explore source-specific evidence. Association, curated validity and regulatory approval answer different questions; scores are not pooled."
+                )
+                source_filter = gr.Dropdown(
+                    ["HPA", "Open Targets", "ClinGen", "Drugs@FDA", "Ensembl", "UniProt", "PubMed"],
+                    multiselect=True,
+                    label="Filter by source",
+                    value=[],
+                )
+                question_filter = gr.Dropdown(
+                    [
+                        "All evidence",
+                        "Where is it expressed?",
+                        "Which diseases are associated?",
+                        "Are there drug candidates?",
+                    ],
+                    value="All evidence",
+                    label="Research question",
+                )
+                subject_filter = gr.Textbox(label="Find a tissue, disease or drug")
+                with gr.Tab("Where is it expressed?"):
                     rna_plot = gr.Plot()
-                with gr.Tab("Disease associations"):
+                with gr.Tab("Which diseases are associated?"):
                     disease_plot = gr.Plot()
-                with gr.Tab("Drug candidates"):
+                with gr.Tab("Are there drug candidates?"):
                     drug_plot = gr.Plot()
-                with gr.Tab("Evidence records"):
+                with gr.Tab("What supports the finding?"):
                     record_id = gr.Dropdown(label="Choose a source record", choices=[])
                     record_detail = gr.HTML()
                     with gr.Accordion("Browse all records", open=False):
                         evidence_table = gr.Dataframe(
-                            headers=["Source", "Subject", "Finding", "Record URL"],
+                            headers=[
+                                "Source",
+                                "Evidence type",
+                                "Subject",
+                                "Finding",
+                                "Interpretation limit",
+                                "Record URL",
+                            ],
                             interactive=False,
                             wrap=True,
                         )
@@ -345,22 +383,24 @@ def main():
             [raw_json, refresh_choice],
             [raw_json, overview, disease_view, drug_view],
         )
-        raw_json.change(
-            explorer,
-            raw_json,
-            [
-                rna_plot,
-                disease_plot,
-                drug_plot,
-                source_table,
-                evidence_table,
-                record_id,
-                trial_id,
-                record_detail,
-                trial_json,
-                trial_button,
-            ],
-        )
+        explorer_outputs = [
+            rna_plot,
+            disease_plot,
+            drug_plot,
+            source_table,
+            evidence_table,
+            record_id,
+            trial_id,
+            record_detail,
+            trial_json,
+            trial_button,
+        ]
+        for control in [raw_json, source_filter, question_filter, subject_filter]:
+            control.change(
+                explorer,
+                [raw_json, source_filter, question_filter, subject_filter],
+                explorer_outputs,
+            )
         record_id.change(
             record_card,
             [record_id, raw_json],

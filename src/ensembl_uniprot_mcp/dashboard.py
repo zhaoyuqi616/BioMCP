@@ -288,6 +288,22 @@ def diseases_html(result):
         if rows_data
         else f"<p>{esc('No disease associations returned.' if state == 'no_data' else 'Disease evidence is unavailable.')}</p>"
     )
+    curated = result.get(
+        "clingen", result.get("snapshot", {}).get("enrichment", {}).get("clingen", {})
+    )
+    curated_rows = [
+        [
+            link(r.get("ONLINE REPORT"), r.get("DISEASE LABEL")),
+            esc(r.get("CLASSIFICATION")),
+            esc(r.get("MOI")),
+        ]
+        for r in curated.get("records", [])
+    ]
+    curated_content = "<h4>ClinGen curated validity</h4>" + (
+        evidence_table(["Disease", "Source classification", "Inheritance"], curated_rows)
+        if curated_rows
+        else f"<p>ClinGen status: {esc(curated.get('status', 'not_requested'))}. No curated records displayed.</p>"
+    )
     omim = sources.get("omim", {})
     omim_content = rows({"OMIM gene maps": omim["gene_maps"]}) if omim.get("gene_maps") else ""
     return (
@@ -296,6 +312,7 @@ def diseases_html(result):
         + content
         + f"<p>OMIM status: {esc(omim.get('status', 'not_configured'))}</p>"
         + omim_content
+        + curated_content
         + link(ot.get("source_url"), "Open Targets")
         + f"<p>Retrieved: {esc(ot.get('retrieved_at'))}</p>"
     )
@@ -313,6 +330,8 @@ def drugs_html(result):
                 link("https://platform.opentargets.org/drug/" + drug["id"], drug["name"]),
                 esc(drug.get("drugType")),
                 esc(drug.get("maximumClinicalStage")),
+                "Reported target candidate; mechanism and directness not retrieved",
+                "Indication-specific approval not verified",
                 esc(
                     "FDA ingredient approval record"
                     if state == "approval_record_found"
@@ -341,6 +360,8 @@ def drugs_html(result):
                     "Drug / candidate",
                     "Modality",
                     "Highest clinical stage",
+                    "Target relationship",
+                    "Indication",
                     "FDA evidence",
                     "Application",
                 ],
@@ -357,7 +378,7 @@ def drugs_html(result):
             )
             else ""
         )
-        + "<p>FDA checks cover at most five displayed ingredients. An approval record does not establish approval for this gene-associated disease. Unverified includes missing matches and unavailable data.</p>"
+        + "<p>FDA checks cover at most five displayed ingredients. An approval record does not establish approval for this gene-associated disease. No exact match, failed lookup and unchecked records remain separate outcomes.</p>"
         + link(data.get("source_url"), "Open Targets target evidence")
     )
 

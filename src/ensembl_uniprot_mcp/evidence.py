@@ -390,6 +390,19 @@ def build_snapshot(result, sections, enriched):
             fda=fda,
             trials=ids,
         )
+        add(
+            "Drugs@FDA",
+            "regulatory",
+            d["name"],
+            status,
+            fda.get("source_url"),
+            drugs.get("retrieved_at"),
+            application=fda.get("application"),
+            linked_drug_id=d["id"],
+        )
+    from .interpretation import annotate
+
+    annotate(records, identity)
     checked = sum(counts.values()) - counts["not_checked"]
     observe(
         "Drugs@FDA",
@@ -400,6 +413,7 @@ def build_snapshot(result, sections, enriched):
     observe("ClinicalTrials.gov", "trial detail", "on_demand")
     return {
         "schema_version": "biomcp.evidence.v1",
+        "interpretation_version": "1.0",
         "request_id": str(uuid4()),
         "identity": identity,
         "sections": sections,

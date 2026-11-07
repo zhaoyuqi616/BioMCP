@@ -42,7 +42,7 @@ def figures(snapshot):
             x=[r["value"] for r in group],
             y=[r["subject"] for r in group],
             mode="markers",
-            name=state,
+            name=state.replace("_", " ").capitalize(),
         )
     drug.update_layout(title="Drug candidates by clinical stage", xaxis_title="Reported stage")
     for plot, values in [(rna, expression), (disease, associations), (drug, entries)]:
@@ -50,7 +50,7 @@ def figures(snapshot):
             message = (
                 "No numeric tissue RNA measurements returned by HPA."
                 if plot is rna
-                else "No records available."
+                else "No records match the selected evidence and filters. Check Sources for retrieval status."
             )
             plot.update_xaxes(visible=False)
             plot.update_yaxes(visible=False)

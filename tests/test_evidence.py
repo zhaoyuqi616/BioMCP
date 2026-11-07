@@ -113,3 +113,51 @@ async def test_consensus_fallback_and_alias():
         )
     finally:
         await svc.close()
+
+
+def test_claim_semantics_preserve_disagreement_and_unknowns():
+    from ensembl_uniprot_mcp.interpretation import annotate, select_records
+
+    records = [
+        {
+            "kind": "curation",
+            "source": "ClinGen",
+            "subject": "Disease A",
+            "value": "Disputed",
+            "url": "https://example.org/a",
+            "retrieved_at": "2026-11-06",
+        },
+        {
+            "kind": "association",
+            "source": "Open Targets",
+            "subject": "Disease A",
+            "value": 0.9,
+            "url": "https://example.org/b",
+            "retrieved_at": None,
+        },
+        {
+            "kind": "drug",
+            "source": "Open Targets",
+            "subject": "Drug B",
+            "value": "APPROVAL",
+            "url": "https://example.org/c",
+            "retrieved_at": None,
+        },
+    ]
+    annotate(records, {"symbol": "TP53"})
+    assert records[0]["value"] == "Disputed" and records[1]["value"] == 0.9
+    assert records[2]["relationships"]["target_specific_approval"] == "Not verified"
+    assert records[1]["provenance"]["retrieval_time_status"] == "not_reported"
+    assert len(select_records({"records": records}, question="Which diseases are associated?")) == 2
+    assert (
+        select_records({"records": records}, ["ClinGen"], search="disease")[0]["value"]
+        == "Disputed"
+    )
+    assert select_records({"records": records}, search="nonexistent") == []
+
+
+def test_empty_ui_filter_is_safe():
+    from ensembl_uniprot_mcp.interpretation import select_records
+
+    record = {"source": "HPA", "kind": "tissue_rna", "subject": "kidney"}
+    assert select_records({"records": [record]}, search=None) == [record]
